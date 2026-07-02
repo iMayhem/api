@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StreamScraper Hub</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<nav class="sidebar">
+  <div class="sidebar-header">
+    <h1>🎬 StreamScraper</h1>
+    <p class="subtitle">All-in-One Media Scraper</p>
+  </div>
+  <div class="sidebar-nav">
+    <button class="nav-btn active" data-view="search" onclick="switchView('search')">🔍 Search</button>
+    <button class="nav-btn" data-view="providers" onclick="switchView('providers')">⚙️ Providers</button>
+    <button class="nav-btn" data-view="settings" onclick="switchView('settings')">🔧 Settings</button>
+    <button class="nav-btn" data-view="info" onclick="switchView('info')">📡 Connection</button>
+  </div>
+  <div class="sidebar-footer">
+    <span id="providerCount">Loading...</span>
+  </div>
+</nav>
+
+<main class="main-content">
+  <!-- Search View -->
+  <div id="view-search" class="view active">
+    <div class="search-section">
+      <div class="search-bar">
+        <input type="text" id="searchInput" placeholder="Enter TMDB ID or search by ID... (e.g. 550)" onkeydown="if(event.key==='Enter') doSearch()">
+        <select id="typeSelect">
+          <option value="movie">🎬 Movie</option>
+          <option value="tv">📺 TV Show</option>
+        </select>
+        <button onclick="doSearch()">🔍 Search</button>
+      </div>
+      <div class="search-options">
+        <label>Season: <input type="number" id="seasonInput" min="1" placeholder="1" style="width:60px"></label>
+        <label>Episode: <input type="number" id="episodeInput" min="1" placeholder="1" style="width:60px"></label>
+      </div>
+    </div>
+
+    <div id="statusBar" class="status-bar"></div>
+    <div id="results" class="results-container"></div>
+  </div>
+
+  <!-- Providers View -->
+  <div id="view-providers" class="view">
+    <div class="view-header">
+      <h2>⚙️ Provider Management</h2>
+      <p>Toggle providers on/off, drag to reorder priority, and disable specific sub-servers.</p>
+    </div>
+    <div id="providerList" class="provider-list"></div>
+  </div>
+
+  <!-- Settings View -->
+  <div id="view-settings" class="view">
+    <div class="view-header">
+      <h2>🔧 Settings</h2>
+    </div>
+    <div class="settings-form">
+      <div class="setting-group">
+        <h3>Server</h3>
+        <label>Port: <input type="number" id="setPort" value="3000"></label>
+        <label>Global Timeout (ms): <input type="number" id="setTimeout" value="20000"></label>
+        <label>Max Results Per Provider: <input type="number" id="setMaxResults" value="20"></label>
+      </div>
+      <div class="setting-group">
+        <h3>TMDB API</h3>
+        <label>API Key: <input type="text" id="setTmdbKey" style="width:400px"></label>
+        <p class="hint">Used by some providers for metadata resolution</p>
+      </div>
+      <div class="setting-group">
+        <h3>🌐 Proxy</h3>
+        <label><input type="checkbox" id="setProxyEnabled"> Enable Proxy</label>
+        <label>Type: <select id="setProxyType"><option value="http">HTTP</option><option value="socks5">SOCKS5</option></select></label>
+        <label>Host: <input type="text" id="setProxyHost" placeholder="127.0.0.1"></label>
+        <label>Port: <input type="number" id="setProxyPort" placeholder="8080"></label>
+        <label>Username: <input type="text" id="setProxyUser" placeholder="(optional)"></label>
+        <label>Password: <input type="password" id="setProxyPass" placeholder="(optional)"></label>
+      </div>
+      <button onclick="saveSettings()" class="btn-primary">💾 Save Settings</button>
+      <span id="settingsStatus"></span>
+    </div>
+  </div>
+
+  <!-- Info View -->
+  <div id="view-info" class="view">
+    <div class="view-header">
+      <h2>📡 Connection Info</h2>
+      <p>Details for connecting to this scraper instance from other apps.</p>
+    </div>
+    <div id="infoContent" class="info-content">
+      <div class="loading">Loading...</div>
+    </div>
+  </div>
+</main>
+
+<script src="/js/app.js"></script>
+</body>
+</html>
