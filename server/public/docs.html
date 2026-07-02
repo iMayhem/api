@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Moovie Embed - Docs</title>
+<link rel="stylesheet" href="/css/style.css">
+<style>
+.docs-content { max-width: 860px; margin: 0 auto; }
+.docs-content h2 { font-size: 22px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.docs-content h3 { font-size: 16px; margin: 24px 0 8px; color: var(--accent); }
+.docs-content p { font-size: 14px; line-height: 1.6; margin-bottom: 12px; color: var(--text2); }
+.docs-content p.highlight { color: var(--text); background: var(--bg3); padding: 12px 16px; border-radius: 6px; border-left: 3px solid var(--accent); }
+.docs-content code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; background: var(--bg); padding: 2px 6px; border-radius: 3px; }
+.docs-content pre { background: var(--bg); padding: 16px; border-radius: 6px; overflow-x: auto; margin: 12px 0; border: 1px solid var(--border); }
+.docs-content pre code { background: none; padding: 0; }
+.docs-content table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0; }
+.docs-content th, .docs-content td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+.docs-content th { background: var(--bg3); color: var(--text2); font-weight: 500; }
+.docs-content tr:hover td { background: var(--bg3); }
+.docs-content .tag { display: inline-block; padding: 1px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; margin-right: 4px; }
+.docs-content .tag-get { background: #1a7f37; color: #fff; }
+.docs-content .tag-post { background: #8250df; color: #fff; }
+.docs-content .tag-put { background: #d29922; color: #000; }
+.docs-content blockquote { border-left: 3px solid var(--accent); padding: 8px 16px; margin: 12px 0; background: var(--bg3); border-radius: 0 6px 6px 0; font-size: 14px; color: var(--text2); }
+.docs-content .example-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 16px 0; }
+.docs-content .example-box h4 { font-size: 14px; margin-bottom: 8px; }
+.back-link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); text-decoration: none; font-size: 13px; margin-bottom: 16px; }
+.back-link:hover { background: var(--bg3); border-color: var(--accent); }
+.sidebar-nav a.nav-btn { display: block; text-decoration: none; }
+</style>
+</head>
+<body>
+<nav class="sidebar">
+  <div class="sidebar-header">
+    <h1>🎬 StreamScraper</h1>
+    <p class="subtitle">Documentation</p>
+  </div>
+  <div class="sidebar-nav">
+    <a href="/" class="nav-btn">← Back to App</a>
+    <a href="#overview" class="nav-btn">📖 Overview</a>
+    <a href="#search-api" class="nav-btn">🔍 Search API</a>
+    <a href="#proxy" class="nav-btn">🔗 Proxy Endpoint</a>
+    <a href="#embed" class="nav-btn">📺 Embed Player</a>
+    <a href="#examples" class="nav-btn">💻 Examples</a>
+    <a href="#reference" class="nav-btn">📋 API Reference</a>
+  </div>
+  <div class="sidebar-footer">
+    <span>Moovie Embed Docs</span>
+  </div>
+</nav>
+
+<main class="main-content">
+  <div class="docs-content">
+    <h1 style="font-size:28px;margin-bottom:4px">Moovie Embed</h1>
+    <p style="font-size:16px;color:var(--text2);margin-bottom:24px">Stream proxy server with embeddable video player. 60+ media source scrapers.</p>
+
+    <h2 id="overview">Overview</h2>
+    <p>Moovie Embed is a backend stream proxy that aggregates media sources from 60+ providers and makes them playable through a single, embeddable video player. The browser communicates only with this server &mdash; never directly with third-party providers.</p>
+    <p class="highlight">Every provider URL is proxied through the backend. The scraper's required headers (Referer, Origin, User-Agent, etc.) are applied server-side. The frontend receives a proxy URL that works transparently.</p>
+
+    <h3>How It Works</h3>
+    <p>1. Client calls the Search API with a TMDB ID → 2. Server scrapes 60+ providers in parallel → 3. Each stream URL is replaced with a proxy URL pointing to this server → 4. The proxy fetches the actual stream from the provider with the correct headers → 5. HLS playlists are rewritten so segments also go through the proxy → 6. The client plays the stream without ever hitting the provider directly.</p>
+
+    <h2 id="search-api">Search API</h2>
+    <p>Search for movie or TV show streams by TMDB ID. Returns provider results with proxy URLs ready for playback.</p>
+
+    <h3>Request</h3>
+    <pre><code>GET /api/search?q={TMDB_ID}&amp;type={movie|tv}&amp;season={S}&amp;episode={E}</code></pre>
+
+    <table>
+      <tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr>
+      <tr><td><code>q</code></td><td>string</td><td>yes</td><td>TMDB ID (e.g. <code>550</code> for Fight Club)</td></tr>
+      <tr><td><code>type</code></td><td>string</td><td>no</td><td><code>movie</code> (default) or <code>tv</code></td></tr>
+      <tr><td><code>season</code></td><td>number</td><td>no</td><td>Season number for TV shows</td></tr>
+      <tr><td><code>episode</code></td><td>number</td><td>no</td><td>Episode number for TV shows</td></tr>
+    </table>
+
+    <h3>Response</h3>
+    <pre><code>{
+  "query": "550",
+  "type": "movie",
+  "totalStreams": 15,
+  "results": [
+    {
+      "provider": "xpass",
+      "providerName": "Xpass",
+      "priority": 1,
+      "count": 3,
+      "servers": ["Xpass | 1080p", "Xpass | 720p"],
+      "streams": [
+        {
+          "name": "Xpass | 1080p",
+          "url": "https://cdn.provider.com/stream.m3u8",
+          "proxyUrl": "/proxy?id=abc123",
+          "type": "m3u8",
+          "quality": "1080p",
+          "headers": { "Referer": "https://provider.com" }
+        }
+      ]
+    }
+  ]
+}</code></pre>
+
+    <p>Each stream object contains:</p>
+    <table>
+      <tr><th>Field</th><th>Description</th></tr>
+      <tr><td><code>url</code></td><td>Original provider URL (for reference)</td></tr>
+      <tr><td><code>proxyUrl</code></td><td><strong>Use this for playback.</strong> Points to <code>/proxy?id=...</code></td></tr>
+      <tr><td><code>type</code></td><td>Media type: <code>m3u8</code>, <code>mp4</code>, <code>mkv</code>, <code>mpd</code></td></tr>
+      <tr><td><code>headers</code></td><td>Headers required by the provider (applied server-side by proxy)</td></tr>
+      <tr><td><code>quality</code></td><td>Resolution label: 1080p, 720p, etc.</td></tr>
+      <tr><td><code>name</code></td><td>Display name for the source</td></tr>
+    </table>
+
+    <h2 id="proxy">Proxy Endpoint</h2>
+    <p>The proxy endpoint fetches stream data from the provider using the scraper's required headers. The browser never contacts the provider directly.</p>
+
+    <h3>ID-based (from Search API)</h3>
+    <pre><code>GET /proxy?id={streamId}</code></pre>
+    <p>The <code>id</code> is generated server-side during search and stored in memory. This is the recommended approach when using the Search API.</p>
+
+    <h3>Inline (stateless)</h3>
+    <pre><code>GET /proxy?u={base64url_url}&amp;h={base64url_headers}</code></pre>
+    <p>Encodes the target URL and JSON headers as base64url. No server-side storage needed. This mode is used internally by HLS playlist rewriting and can be used directly for embedding.</p>
+
+    <p class="highlight">The proxy forwards the client's <code>Range</code> header for seeking, streams the response with proper <code>Content-Type</code>, <code>Content-Length</code>, <code>Content-Range</code>, and <code>Accept-Ranges</code> headers, and follows redirects. HLS playlists (.m3u8) are rewritten so all segment requests also go through the proxy with the same headers.</p>
+
+    <h2 id="embed">Embed Player</h2>
+    <p>The embeddable player at <code>/embed</code> provides a minimal, fullscreen video player that can be loaded in an iframe on any website.</p>
+
+    <h3>Parameters</h3>
+    <table>
+      <tr><th>Param</th><th>Description</th></tr>
+      <tr><td><code>id</code></td><td>Proxy ID from Search API response (<code>proxyUrl</code> param)</td></tr>
+      <tr><td><code>u</code></td><td>Base64url-encoded stream URL (alternative to <code>id</code>)</td></tr>
+      <tr><td><code>h</code></td><td>Base64url-encoded JSON headers (required with <code>u</code>)</td></tr>
+      <tr><td><code>title</code></td><td>Optional title shown as overlay</td></tr>
+      <tr><td><code>type</code></td><td>Media type hint: <code>m3u8</code>, <code>mp4</code>, <code>mpd</code> (auto-detected if omitted)</td></tr>
+      <tr><td><code>autoplay</code></td><td>Set to <code>0</code> to disable autoplay (enabled by default)</td></tr>
+    </table>
+
+    <h2 id="examples">Code Examples</h2>
+
+    <div class="example-box">
+      <h4>1. Basic iframe Embed (using Search API)</h4>
+      <p>Search for streams, pick a source, then embed the player:</p>
+      <pre><code>// Step 1: Search for streams
+fetch('https://your-server.com/api/search?q=550&type=movie')
+  .then(r => r.json())
+  .then(data => {
+    const stream = data.results[0].streams[0];
+    const iframeUrl = 'https://your-server.com/embed?id=' +
+      stream.proxyUrl.split('=')[1];
+
+    // Step 2: Create iframe
+    document.body.innerHTML +=
+      '&lt;iframe src="' + iframeUrl + '" width="100%" height="500" ' +
+      'frameborder="0" allowfullscreen&gt;&lt;/iframe&gt;';
+  });</code></pre>
+    </div>
+
+    <div class="example-box">
+      <h4>2. Direct iframe Embed (inline URL + headers)</h4>
+      <p>If you have a stream URL and headers from your own scraper, encode them:</p>
+      <pre><code>function b64url(str) {
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+const streamUrl = 'https://provider.com/stream.m3u8';
+const headers = { Referer: 'https://provider.com' };
+
+const u = b64url(streamUrl);
+const h = b64url(JSON.stringify(headers));
+
+const iframe = '&lt;iframe src="https://your-server.com/embed' +
+  '?u=' + encodeURIComponent(u) +
+  '&amp;h=' + encodeURIComponent(h) +
+  '&amp;title=My+Movie" ' +
+  'width="100%" height="500" frameborder="0" allowfullscreen&gt;&lt;/iframe&gt;';
+
+document.body.innerHTML += iframe;</code></pre>
+    </div>
+
+    <div class="example-box">
+      <h4>3. HTML Embed Tag</h4>
+      <pre><code>&lt;iframe
+  src="https://your-server.com/embed?id=abc123"
+  width="100%"
+  height="500"
+  frameborder="0"
+  allowfullscreen
+  allow="autoplay; encrypted-media"
+&gt;&lt;/iframe&gt;</code></pre>
+    </div>
+
+    <div class="example-box">
+      <h4>4. React Component</h4>
+      <pre><code>function MoovieEmbed({ serverUrl, proxyId, title, width, height }) {
+  const src = serverUrl + '/embed?id=' + proxyId +
+    (title ? '&amp;title=' + encodeURIComponent(title) : '');
+
+  return (
+    &lt;iframe
+      src={src}
+      width={width || '100%'}
+      height={height || 500}
+      frameBorder="0"
+      allowFullScreen
+      allow="autoplay; encrypted-media"
+    /&gt;
+  );
+}
+
+// Usage
+&lt;MoovieEmbed
+  serverUrl="https://your-server.com"
+  proxyId="abc123"
+  title="Fight Club"
+/&gt;</code></pre>
+    </div>
+
+    <div class="example-box">
+      <h4>5. Programmatic Playback (without iframe)</h4>
+      <p>You can use the proxy URL directly in your own HLS.js player:</p>
+      <pre><code>&lt;video id="video" controls crossorigin&gt;&lt;/video&gt;
+&lt;script src="https://cdn.jsdelivr.net/npm/hls.js@latest"&gt;&lt;/script&gt;
+&lt;script&gt;
+// Get proxy URL from Search API
+fetch('https://your-server.com/api/search?q=550&type=movie')
+  .then(r => r.json())
+  .then(data => {
+    const stream = data.results[0].streams[0];
+    const proxyUrl = 'https://your-server.com' + stream.proxyUrl;
+
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(proxyUrl);
+      hls.attachMedia(document.getElementById('video'));
+    }
+  });
+&lt;/script&gt;</code></pre>
+    </div>
+
+    <h2 id="reference">API Reference</h2>
+
+    <table>
+      <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+      <tr><td><span class="tag tag-get">GET</span></td><td><code>/api/search?q=&amp;type=&amp;season=&amp;episode=</code></td><td>Search for streams by TMDB ID</td></tr>
+      <tr><td><span class="tag tag-get">GET</span></td><td><code>/proxy?id=</code></td><td>Proxy a stream by ID (from search results)</td></tr>
+      <tr><td><span class="tag tag-get">GET</span></td><td><code>/proxy?u=&amp;h=</code></td><td>Proxy a stream by inline URL+headers (stateless)</td></tr>
+      <tr><td><span class="tag tag-get">GET</span></td><td><code>/embed?id=&amp;title=&amp;autoplay=</code></td><td>Embeddable video player (ID mode)</td></tr>
+      <tr><td><span class="tag tag-get">GET</span></td><td><code>/embed?u=&amp;h=&amp;title=&amp;type=</code></td><td>Embeddable video player (stateless inline mode)</td></tr>
+      <tr><td><span class="tag tag-get">GET</span></td><td><code>/api/providers</code></td><td>List all providers and their status</td></tr>
+      <tr><td><span class="tag tag-post">POST</span></td><td><code>/api/providers/:id/toggle</code></td><td>Toggle a provider on/off</td></tr>
+      <tr><td><span class="tag tag-post">POST</span></td><td><code>/api/providers/toggle-all</code></td><td>Enable or disable all providers</td></tr>
+      <tr><td><span class="tag tag-post">POST</span></td><td><code>/api/providers/:id/priority</code></td><td>Set provider priority</td></tr>
+      <tr><td><span class="tag tag-post">POST</span></td><td><code>/api/providers/:id/servers</code></td><td>Update disabled sub-servers</td></tr>
+      <tr><td><span class="tag tag-get">GET</span></td><td><code>/api/providers/:id/discover</code></td><td>Discover available servers for a provider</td></tr>
+      <tr><td><span class="tag tag-get">GET</span></td><td><code>/api/settings</code></td><td>Get server settings</td></tr>
+      <tr><td><span class="tag tag-put">PUT</span></td><td><code>/api/settings</code></td><td>Update server settings</td></tr>
+      <tr><td><span class="tag tag-get">GET</span></td><td><code>/api/info</code></td><td>Get server network information</td></tr>
+    </table>
+
+    <h3>Notes</h3>
+    <blockquote>
+      <strong>Proxy IDs expire on server restart.</strong> Stream IDs are stored in memory. Restarting the server invalidates all existing IDs. Use the inline mode (<code>?u=&amp;h=</code>) for persistent links.
+    </blockquote>
+    <blockquote>
+      <strong>HLS streams are fully proxied.</strong> The proxy rewrites master and variant playlists so every segment request also goes through the proxy with the same headers.
+    </blockquote>
+    <blockquote>
+      <strong>CORS is enabled globally.</strong> All API endpoints and the embed page can be loaded from any origin.
+    </blockquote>
+  </div>
+</main>
+</body>
+</html>

@@ -394,9 +394,19 @@ app.get('/proxy', async (req, res) => {
   }
 });
 
+// Embed player page
+app.get('/embed', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'embed.html'));
+});
+
+// Documentation page
+app.get('/docs', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'docs.html'));
+});
+
 // SPA fallback - serve index.html for non-matching routes
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api/') || req.path.startsWith('/proxy') || req.path.startsWith('/css/') || req.path.startsWith('/js/')) return next();
+  if (req.path.startsWith('/api/') || req.path.startsWith('/proxy') || req.path.startsWith('/embed') || req.path.startsWith('/docs') || req.path.startsWith('/css/') || req.path.startsWith('/js/')) return next();
   res.sendFile(path.join(__dirname, 'public', 'index.html'), err => { if (err) next(); });
 });
 

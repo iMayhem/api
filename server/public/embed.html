@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Moovie Embed</title>
+<link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; }
+#player { width: 100vw; height: 100vh; }
+#info { position: absolute; top: 12px; left: 12px; font-size: 13px; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.6); padding: 6px 12px; border-radius: 4px; pointer-events: none; z-index: 10; }
+#error { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #f85149; z-index: 20; font-size: 14px; background: rgba(0,0,0,0.8); padding: 16px 24px; border-radius: 8px; max-width: 80%; }
+#loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: rgba(255,255,255,0.5); z-index: 5; font-size: 14px; }
+.hidden { display: none !important; }
+.plyr--video { height: 100vh; }
+</style>
+</head>
+<body>
+<div id="loading">Loading player...</div>
+<div id="error" class="hidden"></div>
+<div id="info"></div>
+<div id="player"></div>
+
+<script src="https://cdn.plyr.io/3.7.8/plyr.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script>
+(function() {
+  var params = new URLSearchParams(location.search);
+  var id = params.get('id');
+  var u = params.get('u');
+  var h = params.get('h');
+  var title = params.get('title') || '';
+  var autoplay = params.get('autoplay') !== '0';
+  var embedType = params.get('type') || '';
+
+  if (!id && !u) {
+    showError('Missing stream parameters. Use ?id= or ?u=&h=');
+    return;
+  }
+
+  var proxyUrl;
+  if (id) {
+    proxyUrl = '/proxy?id=' + encodeURIComponent(id);
+  } else {
+    proxyUrl = '/proxy?u=' + encodeURIComponent(u);
+    if (h) proxyUrl += '&h=' + encodeURIComponent(h);
+  }
+
+  if (title) document.getElementById('info').textContent = title;
+
+  var container = document.getElementById('player');
+  container.innerHTML = '<video id="video" playsinline controls' + (autoplay ? ' autoplay' : '') + ' crossorigin></video>';
+  document.getElementById('loading').classList.add('hidden');
+
+  var video = document.getElementById('video');
+
+  function initPlyr() {
+    new Plyr(video, {
+      controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
+      settings: ['quality', 'speed'],
+    });
+  }
+
+  var isHls = embedType === 'm3u8' || (!embedType && (proxyUrl.includes('/proxy') || proxyUrl.includes('.m3u8')));
+
+  if (isHls && Hls.isSupported()) {
+    var hls = new Hls();
+    hls.loadSource(proxyUrl);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, initPlyr);
+    hls.on(Hls.Events.ERROR, function(e, data) {
+      if (data.fatal) {
+        hls.destroy();
+        video.src = proxyUrl;
+        initPlyr();
+      }
+    });
+  } else if (isHls && video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = proxyUrl;
+    video.addEventListener('loadedmetadata', initPlyr);
+  } else {
+    video.src = proxyUrl;
+    video.addEventListener('loadedmetadata', initPlyr);
+  }
+
+  video.addEventListener('error', function() {
+    showError('Failed to load video. The source may be unavailable or expired.');
+  });
+
+  function showError(msg) {
+    document.getElementById('loading').classList.add('hidden');
+    var el = document.getElementById('error');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  }
+})();
+</script>
+</body>
+</html>
