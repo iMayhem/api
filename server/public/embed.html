@@ -39,11 +39,17 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     return;
   }
 
+  var base = '';
+  var host = location.hostname;
+  if (host === 'embed.moovie.fun' || params.get('proxy_base')) {
+    base = params.get('proxy_base') || 'https://proxy.moovie.fun';
+  }
+
   var proxyUrl;
   if (id) {
-    proxyUrl = '/proxy?id=' + encodeURIComponent(id);
+    proxyUrl = base + '/proxy?id=' + encodeURIComponent(id);
   } else {
-    proxyUrl = '/proxy?u=' + encodeURIComponent(u);
+    proxyUrl = base + '/proxy?u=' + encodeURIComponent(u);
     if (h) proxyUrl += '&h=' + encodeURIComponent(h);
   }
 
