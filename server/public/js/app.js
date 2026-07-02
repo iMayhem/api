@@ -1,8 +1,29 @@
+// ── Analytics ─────────────────────────────────────────────────────────
+const anSid = localStorage.getItem('an_sid') || (Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
+if (!localStorage.getItem('an_sid')) localStorage.setItem('an_sid', anSid);
+function anTrack(type, data) {
+  fetch('/api/analytics/event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, sessionId: anSid, data: data || {} }) }).catch(() => {});
+}
+let anHbTimer = null;
+let anEventSource = null;
+function anStartHeartbeat(extra) {
+  if (anHbTimer) clearInterval(anHbTimer);
+  anHbTimer = setInterval(() => anTrack('heartbeat', extra || {}), 30000);
+}
+function anStopHeartbeat() { if (anHbTimer) { clearInterval(anHbTimer); anHbTimer = null; } }
+anTrack('pageview', { url: location.href });
+
+// ── State ─────────────────────────────────────────────────────────────
 let providers = {};
 let providerOrder = [];
 let allStreams = [];
 let player = null;
 let hlsInstance = null;
+let hlsLevels = [];
+let hlsAudioTracks = [];
+let currentHlsLevel = -1;
+let currentHlsAudio = -1;
+let qualityFilter = { '4k': true, '1080': true, '720': true, 'sd': true, 'unknown': true };
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -20,6 +41,8 @@ function switchView(name) {
   document.querySelector(`.nav-btn[data-view="${name}"]`).classList.add('active');
   if (name === 'providers') loadProvidersView();
   if (name === 'settings') loadSettings();
+  if (name === 'filters') loadFilters();
+  if (name === 'analytics') loadAnalytics();
   if (name === 'info') loadInfo();
 }
 
@@ -81,7 +104,7 @@ async function doSearch() {
               const escapedUrl = encodeURIComponent(proxyUrl);
               const url = s.url || '';
               return `
-                <div class="stream-card ${qClass}" onclick="playStream('${escapedUrl}', '${(s.name || 'Stream').replace(/'/g, "\\'")}', '${(s.quality || 'Auto').replace(/'/g, "\\'")}', '${(s.type || '').replace(/'/g, "\\'")}')">
+                <div class="stream-card ${qClass}" data-quality="${(s.quality || 'Auto').replace(/"/g, '&quot;')}" onclick="playStream('${escapedUrl}', '${(s.name || 'Stream').replace(/'/g, "\\'")}', '${(s.quality || 'Auto').replace(/'/g, "\\'")}', '${(s.type || '').replace(/'/g, "\\'")}')">
                   <strong>${s.name || 'Stream'}</strong>
                   <div class="title">${(s.title || '').substring(0, 150)}</div>
                   <div class="url">${url.length > 120 ? url.substring(0, 120) + '...' : url}</div>
@@ -97,6 +120,7 @@ async function doSearch() {
         </div>`;
     }
     container.innerHTML = html;
+    applyQualityFilter();
   } catch (e) {
     container.innerHTML = `<div class="error-box">Error: ${e.message}</div>`;
     status.textContent = 'Search failed';
@@ -109,12 +133,229 @@ function detectType(url, type) {
   return 'video/mp4';
 }
 
+function classifyQuality(quality) {
+  const q = (quality || '').toLowerCase();
+  if (q.includes('4k') || q.includes('2160')) return '4k';
+  if (q.includes('1080')) return '1080';
+  if (q.includes('720')) return '720';
+  if (q.includes('480') || q.includes('360') || q.includes('240') || q.includes('sd')) return 'sd';
+  return 'unknown';
+}
+
+function matchesQualityFilter(quality) {
+  return qualityFilter[classifyQuality(quality)] !== false;
+}
+
+function applyQualityFilter() {
+  document.querySelectorAll('.stream-card').forEach(function(card) {
+    const quality = card.dataset.quality || '';
+    const visible = matchesQualityFilter(quality);
+    card.style.display = visible ? '' : 'none';
+  });
+  document.querySelectorAll('.source-item').forEach(function(item) {
+    const quality = item.dataset.quality || '';
+    const visible = matchesQualityFilter(quality);
+    item.style.display = visible ? '' : 'none';
+  });
+  document.querySelectorAll('.provider-group').forEach(function(group) {
+    const list = group.querySelector('.stream-list');
+    if (!list) return;
+    const visibleCards = list.querySelectorAll('.stream-card[style*="display: none"]');
+    const totalCards = list.querySelectorAll('.stream-card').length;
+    group.style.display = visibleCards.length === totalCards ? 'none' : '';
+  });
+  document.querySelectorAll('.source-group').forEach(function(group) {
+    const visibleItems = group.querySelectorAll('.source-item:not([style*="display: none"])');
+    const allItems = group.querySelectorAll('.source-item').length;
+    group.style.display = visibleItems.length === 0 && allItems > 0 ? 'none' : '';
+  });
+}
+
+function loadFilters() {
+  fetch('/api/settings').then(function(r) { return r.json(); }).then(function(cfg) {
+    if (cfg.qualityFilter) qualityFilter = cfg.qualityFilter;
+    const keys = ['4k', '1080', '720', 'sd', 'unknown'];
+    keys.forEach(function(k) {
+      const el = document.getElementById('filter' + k.charAt(0).toUpperCase() + k.slice(1));
+      if (el) el.checked = qualityFilter[k] !== false;
+    });
+    applyQualityFilter();
+  }).catch(function() {});
+}
+
+function saveFilterState() {
+  qualityFilter['4k'] = document.getElementById('filter4k').checked;
+  qualityFilter['1080'] = document.getElementById('filter1080').checked;
+  qualityFilter['720'] = document.getElementById('filter720').checked;
+  qualityFilter['sd'] = document.getElementById('filterSd').checked;
+  qualityFilter['unknown'] = document.getElementById('filterUnknown').checked;
+  fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ qualityFilter: qualityFilter })
+  }).then(function() {
+    applyQualityFilter();
+    const status = document.getElementById('filterStatus');
+    if (status) { status.textContent = '✅ Filters saved'; setTimeout(function() { status.textContent = ''; }, 2000); }
+  }).catch(function() {});
+}
+
+function toggleAllFilters(enable) {
+  ['filter4k', 'filter1080', 'filter720', 'filterSd', 'filterUnknown'].forEach(function(id) {
+    const el = document.getElementById(id);
+    if (el) el.checked = enable;
+  });
+  saveFilterState();
+}
+
 function playStream(encodedUrl, name, quality, type) {
   const url = decodeURIComponent(encodedUrl);
   switchView('player');
   document.getElementById('playerMeta').textContent = `${name} ${quality ? '- ' + quality : ''}`;
+  anTrack('play', { url, name, quality, type });
+  anStartHeartbeat({ currentStream: name, currentUrl: location.href });
   loadPlayer(url, name, type);
   renderSourceSelector();
+}
+
+const HLS_CONFIG = {
+  maxBufferLength: 60,
+  maxMaxBufferLength: 120,
+  backBufferLength: 30,
+  startLevel: -1,
+  abrEwmaDefaultEstimate: 5e6,
+  enableWorker: true,
+  lowLatencyMode: false,
+};
+
+function preloadRemaining(exceptUrl) {
+  for (const s of allStreams) {
+    const su = s.proxyUrl || s.url;
+    if (su !== exceptUrl) {
+      fetch(su, { method: 'GET', headers: { 'Range': 'bytes=0-0' } }).catch(() => {});
+    }
+  }
+}
+
+function updateHlsLevelLabel(btn) {
+  if (!btn) return;
+  if (currentHlsLevel === -1 || !hlsLevels[currentHlsLevel]) {
+    btn.textContent = '📺 Auto';
+  } else {
+    const l = hlsLevels[currentHlsLevel];
+    btn.textContent = '📺 ' + (l.height || '?') + 'p' + (l.bitrate ? ' (' + Math.round(l.bitrate/1000) + 'kbps)' : '');
+  }
+}
+
+function updateHlsAudioLabel(btn) {
+  if (!btn) return;
+  if (hlsAudioTracks[currentHlsAudio]) {
+    btn.textContent = '🔊 ' + (hlsAudioTracks[currentHlsAudio].name || 'Track ' + (currentHlsAudio + 1));
+  } else {
+    btn.textContent = '🔊 Audio';
+  }
+}
+
+function renderHlsControls() {
+  const container = document.getElementById('playerContainer');
+  let bar = container.querySelector('.hls-controls');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.className = 'hls-controls';
+    container.appendChild(bar);
+  }
+
+  const hasLevels = hlsLevels.length > 0;
+  const hasAudio = hlsAudioTracks.length > 1;
+
+  if (!hasLevels && !hasAudio) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+
+  if (hasLevels && !bar.querySelector('.hls-quality-btn')) {
+    const qBtn = document.createElement('button');
+    qBtn.className = 'hls-btn hls-quality-btn';
+    updateHlsLevelLabel(qBtn);
+    qBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      const dd = this.querySelector('.hls-dropdown');
+      if (dd) dd.classList.toggle('open');
+    });
+    const dd = document.createElement('div');
+    dd.className = 'hls-dropdown';
+    qBtn.appendChild(dd);
+    bar.appendChild(qBtn);
+  }
+
+  if (hasAudio && !bar.querySelector('.hls-audio-btn')) {
+    const aBtn = document.createElement('button');
+    aBtn.className = 'hls-btn hls-audio-btn';
+    updateHlsAudioLabel(aBtn);
+    aBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      const dd = this.querySelector('.hls-dropdown');
+      if (dd) dd.classList.toggle('open');
+    });
+    const dd = document.createElement('div');
+    dd.className = 'hls-dropdown';
+    aBtn.appendChild(dd);
+    bar.appendChild(aBtn);
+  }
+
+  // Populate quality dropdown
+  const qBtn = bar.querySelector('.hls-quality-btn');
+  if (qBtn) {
+    const dd = qBtn.querySelector('.hls-dropdown');
+    if (dd) {
+      let html = '<button data-level="-1" class="' + (currentHlsLevel === -1 ? 'is-active' : '') + '">Auto</button>';
+      hlsLevels.forEach(function(l, i) {
+        const label = (l.height || '?') + 'p' + (l.bitrate ? ' (' + Math.round(l.bitrate/1000) + 'kbps)' : '');
+        html += '<button data-level="' + i + '" class="' + (currentHlsLevel === i ? 'is-active' : '') + '">' + label + '</button>';
+      });
+      dd.innerHTML = html;
+      dd.querySelectorAll('button').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          const from = currentHlsLevel;
+          currentHlsLevel = parseInt(this.dataset.level);
+          if (hlsInstance) hlsInstance.currentLevel = currentHlsLevel;
+          updateHlsLevelLabel(qBtn);
+          dd.classList.remove('open');
+          anTrack('quality_change', { from, to: currentHlsLevel, label: currentHlsLevel === -1 ? 'auto' : (hlsLevels[currentHlsLevel] ? hlsLevels[currentHlsLevel].height + 'p' : '?') });
+        });
+      });
+    }
+  }
+
+  // Populate audio dropdown
+  const aBtn = bar.querySelector('.hls-audio-btn');
+  if (aBtn) {
+    const dd = aBtn.querySelector('.hls-dropdown');
+    if (dd) {
+      let html = '';
+      hlsAudioTracks.forEach(function(t, i) {
+        html += '<button data-track="' + i + '" class="' + (currentHlsAudio === i ? 'is-active' : '') + '">' + (t.name || 'Track ' + (i + 1)) + '</button>';
+      });
+      dd.innerHTML = html;
+      dd.querySelectorAll('button').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          const from = currentHlsAudio;
+          currentHlsAudio = parseInt(this.dataset.track);
+          if (hlsInstance) hlsInstance.audioTrack = currentHlsAudio;
+          updateHlsAudioLabel(aBtn);
+          dd.classList.remove('open');
+          anTrack('audio_change', { from, to: currentHlsAudio, label: hlsAudioTracks[currentHlsAudio] ? hlsAudioTracks[currentHlsAudio].name : '?' });
+        });
+      });
+    }
+  }
+}
+
+function closeAllHlsDropdowns() {
+  document.querySelectorAll('.hls-dropdown.open').forEach(function(d) { d.classList.remove('open'); });
 }
 
 function loadPlayer(url, title, type) {
@@ -129,26 +370,73 @@ function loadPlayer(url, title, type) {
     player = null;
   }
 
+  hlsLevels = [];
+  hlsAudioTracks = [];
+  currentHlsLevel = -1;
+  currentHlsAudio = -1;
+
   const mimeType = detectType(url, type);
 
   container.innerHTML = `
-    <div class="plyr-wrapper">
-      <video id="plyrVideo" playsinline controls crossorigin>
+    <div class="plyr-wrapper" style="position:relative">
+      <video id="plyrVideo" playsinline controls preload="auto" crossorigin>
         <source src="${url.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}" type="${mimeType}">
       </video>
+      <div id="videoLoading" class="video-loading">
+        <div class="loading-anim">
+          <div class="runner">
+            <div class="runner-head"></div>
+            <div class="runner-body"></div>
+            <div class="runner-arms">
+              <div class="runner-arm runner-arm-l"></div>
+              <div class="runner-arm runner-arm-r"></div>
+            </div>
+            <div class="runner-legs">
+              <div class="runner-leg runner-leg-l"></div>
+              <div class="runner-leg runner-leg-r"></div>
+            </div>
+            <div class="runner-shadow"></div>
+          </div>
+          <div class="loading-text-wrap" style="height:18px">
+            <div class="loading-text-inner" style="animation-duration:6s">
+              <span>Loading stream...</span>
+              <span>Buffering...</span>
+              <span>Almost there...</span>
+            </div>
+          </div>
+          <div class="loading-track">
+            <div class="loading-dot"></div>
+            <div class="loading-dot"></div>
+            <div class="loading-dot"></div>
+          </div>
+        </div>
+      </div>
     </div>`;
 
   const video = document.getElementById('plyrVideo');
+  const vLoading = document.getElementById('videoLoading');
+
+  function hideVideoLoad() {
+    if (vLoading) vLoading.classList.add('hidden');
+  }
 
   if (mimeType === 'application/x-mpegURL' && Hls.isSupported()) {
-    hlsInstance = new Hls();
+    hlsInstance = new Hls(HLS_CONFIG);
     hlsInstance.loadSource(url);
     hlsInstance.attachMedia(video);
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+      hlsLevels = hlsInstance.levels || [];
+      hlsAudioTracks = hlsInstance.audioTracks || [];
+      currentHlsLevel = hlsInstance.currentLevel;
+      currentHlsAudio = hlsInstance.audioTrack;
+      renderHlsControls();
       player = new Plyr(video, {
         controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
         settings: ['quality', 'speed'],
       });
+    });
+    hlsInstance.on(Hls.Events.ERROR, (e, data) => {
+      if (data.fatal) anTrack('error', { message: data.type + ': ' + data.details, url });
     });
   } else {
     video.src = url;
@@ -156,7 +444,13 @@ function loadPlayer(url, title, type) {
       controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
       settings: ['quality', 'speed'],
     });
+    setTimeout(hideVideoLoad, 1500);
   }
+
+  video.addEventListener('canplay', hideVideoLoad);
+  video.addEventListener('playing', hideVideoLoad);
+
+  preloadRemaining(url);
 }
 
 function renderSourceSelector() {
@@ -182,7 +476,7 @@ function renderSourceSelector() {
                     qual.includes('720') ? 'q-720' : 'q-auto';
       const proxyUrl = s.proxyUrl || s.url || '';
       const encodedUrl = encodeURIComponent(proxyUrl);
-      html += `<div class="source-item ${qClass}" onclick="playStream('${encodedUrl}', '${(s.name || 'Stream').replace(/'/g, "\\'")}', '${(s.quality || 'Auto').replace(/'/g, "\\'")}', '${(s.type || '').replace(/'/g, "\\'")}')">
+      html += `<div class="source-item ${qClass}" data-quality="${(s.quality || 'Auto').replace(/"/g, '&quot;')}" onclick="playStream('${encodedUrl}', '${(s.name || 'Stream').replace(/'/g, "\\'")}', '${(s.quality || 'Auto').replace(/'/g, "\\'")}', '${(s.type || '').replace(/'/g, "\\'")}')">
         <span class="source-name">${s.name || 'Stream'}</span>
         <span class="source-quality">${s.quality || 'Auto'}</span>
         ${s.size ? `<span class="source-size">${s.size}</span>` : ''}
@@ -191,6 +485,7 @@ function renderSourceSelector() {
     html += `</div>`;
   }
   list.innerHTML = html;
+  applyQualityFilter();
 }
 
 async function toggleProvider(id) {
@@ -324,6 +619,14 @@ async function loadSettings() {
   document.getElementById('setProxyPass').value = cfg.proxy?.password || '';
   document.getElementById('setAutoplay').checked = cfg.autoplay !== false;
   document.getElementById('setIntroSkip').checked = cfg.introSkip === true;
+  if (cfg.qualityFilter) {
+    qualityFilter = cfg.qualityFilter;
+    ['4k', '1080', '720', 'sd', 'unknown'].forEach(function(k) {
+      const el = document.getElementById('filter' + k.charAt(0).toUpperCase() + k.slice(1));
+      if (el) el.checked = qualityFilter[k] !== false;
+    });
+    applyQualityFilter();
+  }
 }
 
 async function saveSettings() {
@@ -425,6 +728,114 @@ server {
   } catch (e) {
     container.innerHTML = `<div class="error-box">Failed to load info: ${e.message}</div>`;
   }
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.hls-btn')) closeAllHlsDropdowns();
+});
+
+// ── Analytics Dashboard ───────────────────────────────────────────────
+
+function loadAnalytics() {
+  fetch('/api/analytics/stats').then(function(r) { return r.json(); }).then(function(stats) {
+    renderAnalyticsStats(stats);
+  }).catch(function() {});
+  loadAnalyticsEvents();
+  connectAnalyticsRealtime();
+}
+
+function renderAnalyticsStats(stats) {
+  var t = stats.totals;
+  document.getElementById('anPageViews').textContent = t.pageViews || 0;
+  document.getElementById('anPlays').textContent = t.plays || 0;
+  document.getElementById('anErrors').textContent = t.errors || 0;
+  document.getElementById('anUnique').textContent = (t.uniqueIps || []).length || 0;
+  document.getElementById('anActive').textContent = stats.realtime.activeNow || 0;
+
+  // Hourly chart
+  var hourly = stats.hourly || {};
+  var hours = Object.keys(hourly).sort();
+  var container = document.getElementById('anHourlyChart');
+  if (hours.length === 0) {
+    container.innerHTML = '<div class="an-empty">No data yet</div>';
+  } else {
+    var maxVal = 1;
+    hours.forEach(function(h) { var r = Math.max(hourly[h].pageViews, hourly[h].plays); if (r > maxVal) maxVal = r; });
+    var html = '<div class="an-chart-bars">';
+    hours.forEach(function(h) {
+      var d = hourly[h];
+      var pct = Math.max(d.pageViews, d.plays) / maxVal * 100;
+      var label = h.slice(5, 10) + 'h' + h.slice(11, 13);
+      html += '<div class="an-chart-col" title="' + h + ' | Views: ' + d.pageViews + ' Plays: ' + d.plays + '">';
+      html += '<div class="an-chart-bar an-bar-plays" style="height:' + (d.plays / maxVal * 100) + '%"></div>';
+      html += '<div class="an-chart-bar an-bar-views" style="height:' + (d.pageViews / maxVal * 100) + '%"></div>';
+      html += '<div class="an-chart-label">' + label + '</div></div>';
+    });
+    html += '</div><div class="an-chart-legend"><span class="an-legend-dot" style="background:var(--accent)"></span> Views <span class="an-legend-dot" style="background:var(--green)"></span> Plays</div>';
+    container.innerHTML = html;
+  }
+
+  // Active users
+  var activeHtml = '';
+  var sessions = stats.realtime.sessions || {};
+  var sessionKeys = Object.keys(sessions);
+  if (sessionKeys.length === 0) {
+    activeHtml = '<div class="an-empty">No active users</div>';
+  } else {
+    activeHtml = '<table class="an-table"><thead><tr><th>IP</th><th>Agent</th><th>Stream</th><th>Last Ping</th></tr></thead><tbody>';
+    var now = Date.now();
+    sessionKeys.forEach(function(sid) {
+      var s = sessions[sid];
+      if (now - s.lastPing > 120000) return;
+      var ago = Math.round((now - s.lastPing) / 1000);
+      var agoStr = ago < 60 ? ago + 's ago' : Math.round(ago / 60) + 'm ago';
+      var ua = (s.userAgent || '').substring(0, 50);
+      activeHtml += '<tr><td>' + (s.ip || '?') + '</td><td title="' + (s.userAgent || '') + '">' + ua + '</td><td>' + (s.currentStream || '-') + '</td><td>' + agoStr + '</td></tr>';
+    });
+    activeHtml += '</tbody></table>';
+  }
+  document.getElementById('anActiveUsers').innerHTML = activeHtml;
+}
+
+function loadAnalyticsEvents() {
+  var filter = document.getElementById('anEventFilter').value;
+  var url = '/api/analytics/events?limit=100';
+  fetch(url).then(function(r) { return r.json(); }).then(function(events) {
+    var container = document.getElementById('anEventsList');
+    if (events.length === 0) {
+      container.innerHTML = '<div class="an-empty">No events yet</div>';
+      return;
+    }
+    var html = '<table class="an-table"><thead><tr><th>Time</th><th>Type</th><th>Session</th><th>IP</th><th>Details</th></tr></thead><tbody>';
+    events.forEach(function(e) {
+      if (filter !== 'all' && e.type !== filter) return;
+      var time = new Date(e.time).toLocaleTimeString();
+      var typeClass = 'an-type-' + e.type;
+      var details = '';
+      if (e.type === 'play' && e.data) details = e.data.name || e.data.url || '';
+      if (e.type === 'error' && e.data) details = e.data.message || '';
+      if (e.type === 'quality_change' && e.data) details = (e.data.from === -1 ? 'auto' : e.data.label) + ' → ' + (e.data.to === -1 ? 'auto' : e.data.label);
+      if (e.type === 'audio_change' && e.data) details = e.data.label || '';
+      html += '<tr><td>' + time + '</td><td><span class="an-type-badge ' + typeClass + '">' + e.type + '</span></td><td class="an-sid">' + (e.sessionId || '').slice(0, 8) + '</td><td>' + (e.ip || '') + '</td><td class="an-details">' + details + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  }).catch(function() {});
+}
+
+function connectAnalyticsRealtime() {
+  if (anEventSource) anEventSource.close();
+  anEventSource = new EventSource('/api/analytics/realtime');
+  anEventSource.onmessage = function(e) {
+    try {
+      var msg = JSON.parse(e.data);
+      if (msg.type === 'stats' && msg.stats) renderAnalyticsStats(msg.stats);
+    } catch(err) {}
+  };
+  anEventSource.onerror = function() {
+    anEventSource.close();
+    setTimeout(connectAnalyticsRealtime, 5000);
+  };
 }
 
 window.onload = () => { loadProvidersView(); };

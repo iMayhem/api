@@ -859,6 +859,34 @@
       "formats": ["mp4", "m3u8"],
       "logo": "https://i.postimg.cc/2yLnTzPP/kisskh.jpg",
       "contentLanguage": ["ko", "ch", "ja", "th"]
+    },
+    {
+      "id": "tasty",
+      "name": "Tasty",
+      "description": "PeliculasFlix — movies only via GraphQL API, multi-embed resolver (StreamWish, VidHide, FileMoon, VOE, DoodStream, StreamTape, Vimeos, GoodStream, OkRu, Uqload, Streamlare)",
+      "version": "1.0.0",
+      "author": "Nuvio Team",
+      "supportedTypes": ["movie"],
+      "filename": "providers/tasty.js",
+      "enabled": true,
+      "hasSettings": true,
+      "formats": ["mp4", "m3u8"],
+      "logo": "",
+      "contentLanguage": ["en", "es"]
+    },
+    {
+      "id": "cinestream",
+      "name": "CineStream",
+      "description": "Aggregated scraper — PlaySrc + VidFlix via madplay.site API, CDN-aware header injection",
+      "version": "1.0.0",
+      "author": "Nuvio Team",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/cinestream.js",
+      "enabled": true,
+      "hasSettings": true,
+      "formats": ["mp4", "m3u8"],
+      "logo": "",
+      "contentLanguage": ["en"]
     }
   ]
 }

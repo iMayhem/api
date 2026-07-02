@@ -316,6 +316,16 @@
       "enabled": true,
       "priority": 61,
       "disabledServers": []
+    },
+    "tasty": {
+      "enabled": true,
+      "priority": 62,
+      "disabledServers": []
+    },
+    "cinestream": {
+      "enabled": true,
+      "priority": 63,
+      "disabledServers": []
     }
   }
 }

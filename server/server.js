@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { Readable } = require('stream');
 const { HttpProxyAgent } = require('http-proxy-agent');
 const { HttpsProxyAgent } = require('https-proxy-agent');
+const analytics = require('./analytics');
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 const PROVIDERS_DIR = path.join(__dirname, '..', 'deobfuscated');
@@ -25,7 +26,7 @@ function loadConfig() {
   try {
     return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   } catch {
-    return { port: 3000, tmdbApiKey: '', autoplay: true, introSkip: false, proxy: { enabled: false }, globalTimeout: 20000, maxResultsPerProvider: 20, providers: {} };
+    return { port: 3000, tmdbApiKey: '', autoplay: true, introSkip: false, proxy: { enabled: false }, globalTimeout: 20000, maxResultsPerProvider: 20, providers: {}, qualityFilter: { '4k': true, '1080': true, '720': true, 'sd': true, 'unknown': true } };
   }
 }
 
@@ -245,7 +246,7 @@ app.get('/api/settings', (req, res) => {
 
 // Update settings
 app.put('/api/settings', (req, res) => {
-  const { port, tmdbApiKey, globalTimeout, maxResultsPerProvider, proxy, autoplay, introSkip } = req.body;
+  const { port, tmdbApiKey, globalTimeout, maxResultsPerProvider, proxy, autoplay, introSkip, qualityFilter } = req.body;
   if (port) config.port = port;
   if (tmdbApiKey) config.tmdbApiKey = tmdbApiKey;
   if (globalTimeout) config.globalTimeout = globalTimeout;
@@ -253,6 +254,7 @@ app.put('/api/settings', (req, res) => {
   if (proxy) config.proxy = { ...config.proxy, ...proxy };
   if (typeof autoplay === 'boolean') config.autoplay = autoplay;
   if (typeof introSkip === 'boolean') config.introSkip = introSkip;
+  if (qualityFilter) config.qualityFilter = qualityFilter;
   saveConfig();
   res.json(config);
 });
@@ -415,6 +417,15 @@ app.get('/proxy', async (req, res) => {
   }
 });
 
+// ============ Analytics Routes ============
+
+app.post('/api/analytics/event', analytics.handleEvent);
+app.get('/api/analytics/stats', analytics.handleStats);
+app.get('/api/analytics/events', analytics.handleEventsList);
+app.get('/api/analytics/realtime', analytics.handleRealtime);
+
+// ============ Embed Routes ============
+
 // Embed player page
 app.get('/embed', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'embed.html'));
@@ -440,6 +451,7 @@ app.use((req, res, next) => {
 async function start() {
   await loadProviders();
   initProviderConfig();
+  analytics.init();
   console.log(`Loaded ${Object.keys(providers).length} providers`);
   app.listen(config.port, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${config.port}`);

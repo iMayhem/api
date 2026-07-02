@@ -17,6 +17,8 @@
     <button class="nav-btn active" data-view="search" onclick="switchView('search')">🔍 Search</button>
     <button class="nav-btn" data-view="player" onclick="switchView('player')">▶️ Player</button>
     <button class="nav-btn" data-view="providers" onclick="switchView('providers')">⚙️ Providers</button>
+    <button class="nav-btn" data-view="filters" onclick="switchView('filters')">🎯 Filters</button>
+    <button class="nav-btn" data-view="analytics" onclick="switchView('analytics')">📊 Analytics</button>
     <button class="nav-btn" data-view="settings" onclick="switchView('settings')">🔧 Settings</button>
     <button class="nav-btn" data-view="info" onclick="switchView('info')">📡 Connection</button>
     <a href="/docs" class="nav-btn" style="display:block;text-decoration:none">📖 Docs</a>
@@ -56,8 +58,30 @@
       <p id="playerMeta">Select a stream from search results to play</p>
     </div>
     <div id="playerContainer">
-      <div class="player-placeholder">
-        <p>🔍 Search for content, then click ▶️ on any stream card to play it here.</p>
+      <div class="player-placeholder" id="playerPlaceholder">
+        <div class="loading-anim">
+          <div class="runner">
+            <div class="runner-head"></div>
+            <div class="runner-body"></div>
+            <div class="runner-arms">
+              <div class="runner-arm runner-arm-l"></div>
+              <div class="runner-arm runner-arm-r"></div>
+            </div>
+            <div class="runner-legs">
+              <div class="runner-leg runner-leg-l"></div>
+              <div class="runner-leg runner-leg-r"></div>
+            </div>
+            <div class="runner-shadow"></div>
+          </div>
+          <div>
+            <p id="playerPlaceholderText">Search for content, then click ▶️ on any stream card to play it here.</p>
+          </div>
+          <div class="loading-track">
+            <div class="loading-dot"></div>
+            <div class="loading-dot"></div>
+            <div class="loading-dot"></div>
+          </div>
+        </div>
       </div>
     </div>
     <div id="sourceSelector" class="source-selector" style="display:none">
@@ -73,6 +97,89 @@
       <p>Toggle providers on/off, drag to reorder priority, and disable specific sub-servers.</p>
     </div>
     <div id="providerList" class="provider-list"></div>
+  </div>
+
+  <!-- Filters View -->
+  <div id="view-filters" class="view">
+    <div class="view-header">
+      <h2>🎯 Quality Filters</h2>
+      <p>Choose which stream qualities to show in search results. Unchecked qualities will be hidden.</p>
+    </div>
+    <div class="filters-form">
+      <div class="setting-group">
+        <h3>Allowed Resolutions</h3>
+        <label class="filter-checkbox">
+          <input type="checkbox" id="filter4k" checked onchange="saveFilterState()">
+          <span class="checkmark"></span>
+          <span>4K (2160p) <span class="qual-badge q-4k">Ultra HD</span></span>
+        </label>
+        <label class="filter-checkbox">
+          <input type="checkbox" id="filter1080" checked onchange="saveFilterState()">
+          <span class="checkmark"></span>
+          <span>1080p <span class="qual-badge q-1080">Full HD</span></span>
+        </label>
+        <label class="filter-checkbox">
+          <input type="checkbox" id="filter720" checked onchange="saveFilterState()">
+          <span class="checkmark"></span>
+          <span>720p <span class="qual-badge q-720">HD</span></span>
+        </label>
+        <label class="filter-checkbox">
+          <input type="checkbox" id="filterSd" checked onchange="saveFilterState()">
+          <span class="checkmark"></span>
+          <span>SD (480p, 360p, 240p) <span class="qual-badge q-sd">Standard</span></span>
+        </label>
+        <label class="filter-checkbox">
+          <input type="checkbox" id="filterUnknown" checked onchange="saveFilterState()">
+          <span class="checkmark"></span>
+          <span>Unknown Quality <span class="qual-badge q-unknown">Auto</span></span>
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button onclick="toggleAllFilters(true)" class="btn-primary">Select All</button>
+        <button onclick="toggleAllFilters(false)" class="btn-secondary">Deselect All</button>
+        <span id="filterStatus" style="margin-left:12px;font-size:12px;color:var(--text2);display:flex;align-items:center"></span>
+      </div>
+      <p class="filter-note">Filters apply to the search results display. When a quality is unchecked, streams matching that resolution won't appear in results or the source selector.</p>
+    </div>
+  </div>
+
+  <!-- Analytics View -->
+  <div id="view-analytics" class="view">
+    <div class="view-header">
+      <h2>📊 Analytics</h2>
+      <p id="analyticsSub">Real-time video player analytics</p>
+    </div>
+    <div class="an-stats-row" id="anStatsRow">
+      <div class="an-stat-card"><div class="an-stat-value" id="anPageViews">0</div><div class="an-stat-label">Page Views</div></div>
+      <div class="an-stat-card"><div class="an-stat-value" id="anPlays">0</div><div class="an-stat-label">Plays</div></div>
+      <div class="an-stat-card"><div class="an-stat-value" id="anErrors">0</div><div class="an-stat-label">Errors</div></div>
+      <div class="an-stat-card"><div class="an-stat-value" id="anUnique">0</div><div class="an-stat-label">Unique Visitors</div></div>
+      <div class="an-stat-card an-stat-live" id="anActiveCard"><div class="an-stat-value" id="anActive">0</div><div class="an-stat-label"><span class="an-dot"></span> Active Now</div></div>
+    </div>
+    <div class="an-grid">
+      <div class="an-panel">
+        <h3>📈 Activity (Last 24h)</h3>
+        <div id="anHourlyChart" class="an-hourly-chart"><div class="loading">Loading...</div></div>
+      </div>
+      <div class="an-panel">
+        <h3>👤 Active Users</h3>
+        <div id="anActiveUsers" class="an-active-users"><div class="loading">Loading...</div></div>
+      </div>
+    </div>
+    <div class="an-panel" style="margin-top:16px">
+      <h3>📋 Recent Events</h3>
+      <div class="an-event-controls">
+        <select id="anEventFilter" onchange="loadAnalyticsEvents()">
+          <option value="all">All Events</option>
+          <option value="pageview">Page Views</option>
+          <option value="play">Plays</option>
+          <option value="error">Errors</option>
+          <option value="quality_change">Quality Changes</option>
+          <option value="audio_change">Audio Changes</option>
+        </select>
+      </div>
+      <div id="anEventsList" class="an-events-list"><div class="loading">Loading...</div></div>
+    </div>
   </div>
 
   <!-- Settings View -->
