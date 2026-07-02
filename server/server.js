@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const { Readable } = require('stream');
 const { HttpProxyAgent } = require('http-proxy-agent');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
@@ -12,6 +14,12 @@ const MANIFEST_PATH = path.join(__dirname, '..', 'manifest.json');
 let config = loadConfig();
 let providers = {};
 let providerMeta = {};
+const streamStore = new Map();
+let streamIdCounter = 0;
+
+function generateStreamId() {
+  return (++streamIdCounter).toString(36) + crypto.randomBytes(4).toString('hex');
+}
 
 function loadConfig() {
   try {
@@ -142,6 +150,17 @@ app.post('/api/providers/:id/toggle', (req, res) => {
   res.json({ id, enabled: config.providers[id].enabled });
 });
 
+// Toggle all providers
+app.post('/api/providers/toggle-all', (req, res) => {
+  const { enabled } = req.body;
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'Missing enabled boolean' });
+  for (const id of Object.keys(config.providers)) {
+    if (providers[id]) config.providers[id].enabled = enabled;
+  }
+  saveConfig();
+  res.json({ enabled });
+});
+
 // Update provider priority
 app.post('/api/providers/:id/priority', (req, res) => {
   const { id } = req.params;
@@ -181,13 +200,31 @@ app.get('/api/search', async (req, res) => {
       if (streams && streams.length > 0) {
         const filtered = filterStreams(streams, id);
         if (filtered.length > 0) {
+          const sliced = filtered.slice(0, config.maxResultsPerProvider || 20);
+          for (const stream of sliced) {
+            if (!stream.type) {
+              if (stream.url.includes('.m3u8')) stream.type = 'm3u8';
+              else if (stream.url.includes('.mpd')) stream.type = 'mpd';
+              else if (stream.url.includes('.ts')) stream.type = 'ts';
+              else if (stream.url.includes('.mp4')) stream.type = 'mp4';
+              else if (stream.url.includes('.mkv')) stream.type = 'mkv';
+              else stream.type = 'mp4';
+            }
+            const storeId = generateStreamId();
+            streamStore.set(storeId, {
+              url: stream.url,
+              headers: stream.headers || {},
+              type: stream.type,
+            });
+            stream.proxyUrl = `/proxy?id=${storeId}`;
+          }
           results.push({
             provider: id,
             providerName: providerMeta[id]?.name || id,
             priority: pConfig.priority,
             count: filtered.length,
             servers: extractStreamServers(filtered),
-            streams: filtered.slice(0, config.maxResultsPerProvider || 20),
+            streams: sliced,
           });
         }
       }
@@ -254,9 +291,112 @@ app.get('/api/info', (req, res) => {
   });
 });
 
+// ============ Stream Proxy ============
+
+function encodeB64url(str) {
+  return Buffer.from(str).toString('base64url');
+}
+
+function decodeB64url(str) {
+  return Buffer.from(str, 'base64url').toString();
+}
+
+function rewriteHlsPlaylist(playlist, baseUrl, headers) {
+  const headerB64 = encodeB64url(JSON.stringify(headers));
+  const lines = playlist.split('\n');
+  return lines.map(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return line;
+    try {
+      const absoluteUrl = new URL(trimmed, baseUrl).href;
+      const urlB64 = encodeB64url(absoluteUrl);
+      return `/proxy?u=${urlB64}&h=${headerB64}`;
+    } catch {
+      return line;
+    }
+  }).join('\n');
+}
+
+// Proxy endpoint - supports both ID-based lookup and inline URL+headers
+app.get('/proxy', async (req, res) => {
+  const { id, u, h } = req.query;
+
+  let targetUrl, targetHeaders, targetType;
+
+  if (id && streamStore.has(id)) {
+    const entry = streamStore.get(id);
+    targetUrl = entry.url;
+    targetHeaders = entry.headers;
+    targetType = entry.type;
+  } else if (u) {
+    targetUrl = decodeB64url(u);
+    targetHeaders = h ? JSON.parse(decodeB64url(h)) : {};
+  } else {
+    return res.status(400).send('Missing id or url parameter');
+  }
+
+  const fetchHeaders = { ...targetHeaders };
+  if (req.headers.range) {
+    fetchHeaders.Range = req.headers.range;
+  }
+  if (!fetchHeaders['User-Agent'] && !fetchHeaders['user-agent']) {
+    fetchHeaders['User-Agent'] = req.headers['user-agent'] || 'Mozilla/5.0';
+  }
+
+  try {
+    const agent = createProxyAgent(targetUrl);
+    const opts = { headers: fetchHeaders };
+    if (agent) opts.agent = agent;
+
+    const response = await fetch(targetUrl, opts);
+
+    if (!response.ok && response.status !== 206) {
+      return res.status(response.status).send(`Provider returned ${response.status}`);
+    }
+
+    const forwardHeaders = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'content-disposition'];
+    for (const [key, value] of response.headers) {
+      if (forwardHeaders.includes(key.toLowerCase())) {
+        res.setHeader(key, value);
+      }
+    }
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+    res.status(response.status);
+
+    const contentType = response.headers.get('content-type') || '';
+    const isHlsPlaylist = targetType === 'm3u8' || targetUrl.includes('.m3u8') ||
+      contentType.includes('mpegurl') || contentType.includes('x-mpegurl');
+
+    if (isHlsPlaylist) {
+      const text = await response.text();
+      const baseUrl = new URL(targetUrl);
+      const rewritten = rewriteHlsPlaylist(text, baseUrl, targetHeaders);
+      res.setHeader('Content-Type', contentType || 'application/vnd.apple.mpegurl');
+      res.setHeader('Content-Length', Buffer.byteLength(rewritten));
+      res.end(rewritten);
+    } else {
+      const nodeStream = Readable.fromWeb(response.body);
+      req.on('close', () => nodeStream.destroy());
+      nodeStream.pipe(res);
+    }
+  } catch (e) {
+    console.error('Proxy error:', e.message);
+    if (!res.headersSent) {
+      if (e.code === 'ENOTFOUND' || e.code === 'ECONNREFUSED') {
+        res.status(502).send('Provider unreachable');
+      } else if (e.name === 'AbortError') {
+        res.status(504).send('Proxy timeout');
+      } else {
+        res.status(502).send('Proxy error');
+      }
+    }
+  }
+});
+
 // SPA fallback - serve index.html for non-matching routes
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api/') || req.path.startsWith('/css/') || req.path.startsWith('/js/')) return next();
+  if (req.path.startsWith('/api/') || req.path.startsWith('/proxy') || req.path.startsWith('/css/') || req.path.startsWith('/js/')) return next();
   res.sendFile(path.join(__dirname, 'public', 'index.html'), err => { if (err) next(); });
 });
 

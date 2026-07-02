@@ -77,10 +77,11 @@ async function doSearch() {
               const qual = (s.quality || '').toLowerCase();
               const qClass = qual.includes('4k') || qual.includes('2160') || qual.includes('1080') ? 'q-high' :
                             qual.includes('720') ? 'q-med' : 'q-low';
+              const proxyUrl = s.proxyUrl || s.url || '';
+              const escapedUrl = encodeURIComponent(proxyUrl);
               const url = s.url || '';
-              const escapedUrl = encodeURIComponent(url);
               return `
-                <div class="stream-card ${qClass}" onclick="playStream('${escapedUrl}', '${(s.name || 'Stream').replace(/'/g, "\\'")}', '${(s.quality || 'Auto').replace(/'/g, "\\'")}')">
+                <div class="stream-card ${qClass}" onclick="playStream('${escapedUrl}', '${(s.name || 'Stream').replace(/'/g, "\\'")}', '${(s.quality || 'Auto').replace(/'/g, "\\'")}', '${(s.type || '').replace(/'/g, "\\'")}')">
                   <strong>${s.name || 'Stream'}</strong>
                   <div class="title">${(s.title || '').substring(0, 150)}</div>
                   <div class="url">${url.length > 120 ? url.substring(0, 120) + '...' : url}</div>
@@ -102,21 +103,21 @@ async function doSearch() {
   }
 }
 
-function detectType(url) {
-  if (url.includes('.m3u8')) return 'application/x-mpegURL';
-  if (url.includes('.mpd')) return 'application/dash+xml';
+function detectType(url, type) {
+  if (type === 'm3u8' || url.includes('.m3u8')) return 'application/x-mpegURL';
+  if (type === 'mpd' || url.includes('.mpd')) return 'application/dash+xml';
   return 'video/mp4';
 }
 
-function playStream(encodedUrl, name, quality) {
+function playStream(encodedUrl, name, quality, type) {
   const url = decodeURIComponent(encodedUrl);
   switchView('player');
   document.getElementById('playerMeta').textContent = `${name} ${quality ? '- ' + quality : ''}`;
-  loadPlayer(url, name);
+  loadPlayer(url, name, type);
   renderSourceSelector();
 }
 
-function loadPlayer(url, title) {
+function loadPlayer(url, title, type) {
   const container = document.getElementById('playerContainer');
 
   if (hlsInstance) {
@@ -128,7 +129,7 @@ function loadPlayer(url, title) {
     player = null;
   }
 
-  const mimeType = detectType(url);
+  const mimeType = detectType(url, type);
 
   container.innerHTML = `
     <div class="plyr-wrapper">
@@ -179,8 +180,9 @@ function renderSourceSelector() {
       const qClass = qual.includes('4k') || qual.includes('2160') ? 'q-4k' :
                     qual.includes('1080') ? 'q-1080' :
                     qual.includes('720') ? 'q-720' : 'q-auto';
-      const encodedUrl = encodeURIComponent(s.url);
-      html += `<div class="source-item ${qClass}" onclick="playStream('${encodedUrl}', '${(s.name || 'Stream').replace(/'/g, "\\'")}', '${(s.quality || 'Auto').replace(/'/g, "\\'")}')">
+      const proxyUrl = s.proxyUrl || s.url || '';
+      const encodedUrl = encodeURIComponent(proxyUrl);
+      html += `<div class="source-item ${qClass}" onclick="playStream('${encodedUrl}', '${(s.name || 'Stream').replace(/'/g, "\\'")}', '${(s.quality || 'Auto').replace(/'/g, "\\'")}', '${(s.type || '').replace(/'/g, "\\'")}')">
         <span class="source-name">${s.name || 'Stream'}</span>
         <span class="source-quality">${s.quality || 'Auto'}</span>
         ${s.size ? `<span class="source-size">${s.size}</span>` : ''}
@@ -268,7 +270,12 @@ async function loadProvidersView() {
   const container = document.getElementById('providerList');
   providerOrder = Object.entries(providers).sort((a, b) => (a[1].priority || 999) - (b[1].priority || 999));
 
-  let html = '';
+  let html = `
+    <div class="toggle-all-bar">
+      <button class="btn-primary" onclick="toggleAllProviders(true)">✅ Enable All</button>
+      <button class="btn-secondary" onclick="toggleAllProviders(false)">❌ Disable All</button>
+      <span style="margin-left:12px;font-size:12px;color:var(--text2)">${Object.values(providers).filter(p => p.enabled).length}/${Object.keys(providers).length} enabled</span>
+    </div>`;
   for (const [id, p] of providerOrder) {
     html += `
       <div class="provider-item" data-id="${id}">
@@ -296,6 +303,11 @@ async function loadProvidersView() {
   }
   container.innerHTML = html;
   document.getElementById('providerCount').textContent = `${Object.keys(providers).length} providers loaded`;
+}
+
+async function toggleAllProviders(enabled) {
+  await api('/api/providers/toggle-all', { method: 'POST', body: JSON.stringify({ enabled }) });
+  loadProvidersView();
 }
 
 async function loadSettings() {
