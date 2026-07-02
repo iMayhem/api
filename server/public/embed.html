@@ -14,12 +14,27 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
 #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: rgba(255,255,255,0.5); z-index: 5; font-size: 14px; }
 .hidden { display: none !important; }
 .plyr--video { height: 100vh; }
+
+#sourceSelector {
+  position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+  z-index: 15; background: rgba(0,0,0,0.85); border-radius: 8px;
+  padding: 8px; max-width: 90vw; display: flex; flex-wrap: wrap; gap: 6px;
+  justify-content: center; backdrop-filter: blur(4px);
+}
+#sourceSelector button {
+  background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2);
+  padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 12px;
+  white-space: nowrap; transition: background 0.15s;
+}
+#sourceSelector button:hover { background: rgba(255,255,255,0.2); }
+#sourceSelector button.active { background: #e50914; border-color: #e50914; }
 </style>
 </head>
 <body>
 <div id="loading">Loading player...</div>
 <div id="error" class="hidden"></div>
 <div id="info"></div>
+<div id="sourceSelector" class="hidden"></div>
 <div id="player"></div>
 
 <script src="https://cdn.plyr.io/3.7.8/plyr.js"></script>
@@ -27,15 +42,160 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
 <script>
 (function() {
   var params = new URLSearchParams(location.search);
+  var tmdb = params.get('tmdb');
+  var mediaType = params.get('type') || 'movie';
+  var season = params.get('season') || '';
+  var episode = params.get('episode') || '';
+  var title = params.get('title') || '';
+  var autoplay = params.get('autoplay') !== '0';
   var id = params.get('id');
   var u = params.get('u');
   var h = params.get('h');
-  var title = params.get('title') || '';
-  var autoplay = params.get('autoplay') !== '0';
-  var embedType = params.get('type') || '';
 
+  var container = document.getElementById('player');
+  var videoEl = null;
+  var plyr = null;
+  var hlsInstance = null;
+  var currentSourceIndex = 0;
+  var streams = [];
+
+  function createVideo() {
+    container.innerHTML = '<video id="video" playsinline controls' + (autoplay ? ' autoplay' : '') + ' crossorigin></video>';
+    videoEl = document.getElementById('video');
+    videoEl.addEventListener('error', function() {
+      tryNextSource();
+    });
+  }
+
+  function initPlyr() {
+    if (plyr) plyr.destroy();
+    plyr = new Plyr(videoEl, {
+      controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
+      settings: ['quality', 'speed'],
+    });
+  }
+
+  function destroyPlayer() {
+    if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+    if (plyr) { plyr.destroy(); plyr = null; }
+  }
+
+  function playUrl(url, type) {
+    destroyPlayer();
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('error').classList.add('hidden');
+    createVideo();
+    var isHls = type === 'm3u8' || (!type && (url.includes('/proxy') || url.includes('.m3u8')));
+    if (isHls && Hls.isSupported()) {
+      hlsInstance = new Hls();
+      hlsInstance.loadSource(url);
+      hlsInstance.attachMedia(videoEl);
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED, initPlyr);
+      hlsInstance.on(Hls.Events.ERROR, function(e, data) {
+        if (data.fatal) {
+          hlsInstance.destroy();
+          hlsInstance = null;
+          videoEl.src = url;
+          videoEl.addEventListener('loadedmetadata', initPlyr, { once: true });
+        }
+      });
+    } else if (isHls && videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+      videoEl.src = url;
+      videoEl.addEventListener('loadedmetadata', initPlyr, { once: true });
+    } else {
+      videoEl.src = url;
+      videoEl.addEventListener('loadedmetadata', initPlyr, { once: true });
+    }
+  }
+
+  function buildSourcesUI() {
+    var sel = document.getElementById('sourceSelector');
+    sel.innerHTML = '';
+    sel.classList.remove('hidden');
+    streams.forEach(function(s, i) {
+      var btn = document.createElement('button');
+      btn.textContent = s.label;
+      if (i === currentSourceIndex) btn.className = 'active';
+      btn.addEventListener('click', function() {
+        currentSourceIndex = i;
+        playUrl(s.url, s.type);
+        sel.querySelectorAll('button').forEach(function(b) { b.className = ''; });
+        btn.className = 'active';
+        if (title) document.getElementById('info').textContent = title + ' - ' + s.label;
+      });
+      sel.appendChild(btn);
+    });
+  }
+
+  function tryNextSource() {
+    if (currentSourceIndex + 1 < streams.length) {
+      currentSourceIndex++;
+      playUrl(streams[currentSourceIndex].url, streams[currentSourceIndex].type);
+      var sel = document.getElementById('sourceSelector');
+      sel.querySelectorAll('button').forEach(function(b, i) {
+        b.className = i === currentSourceIndex ? 'active' : '';
+      });
+      if (title) document.getElementById('info').textContent = title + ' - ' + streams[currentSourceIndex].label;
+    } else {
+      showError('All sources failed to load.');
+    }
+  }
+
+  function showError(msg) {
+    destroyPlayer();
+    document.getElementById('loading').classList.add('hidden');
+    var el = document.getElementById('error');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  }
+
+  // --- Main flow ---
+
+  // Mode 1: TMDB ID — search API
+  if (tmdb) {
+    document.getElementById('loading').textContent = 'Searching for streams...';
+    var searchUrl = '/api/search?q=' + encodeURIComponent(tmdb) + '&type=' + encodeURIComponent(mediaType);
+    if (season) searchUrl += '&season=' + encodeURIComponent(season);
+    if (episode) searchUrl += '&episode=' + encodeURIComponent(episode);
+
+    fetch(searchUrl)
+      .then(function(r) {
+        if (!r.ok) throw new Error('Search failed (HTTP ' + r.status + ')');
+        return r.json();
+      })
+      .then(function(data) {
+        if (!data.results || data.results.length === 0) {
+          showError('No streams found for this content.');
+          return;
+        }
+        data.results.forEach(function(provider) {
+          (provider.streams || []).forEach(function(s) {
+            streams.push({
+              url: s.proxyUrl,
+              type: s.type || 'm3u8',
+              label: (provider.providerName || provider.provider) + ' | ' + (s.name || s.quality || 'auto')
+            });
+          });
+        });
+        if (streams.length === 0) {
+          showError('No playable streams found.');
+          return;
+        }
+        document.getElementById('loading').textContent = 'Loading player...';
+        if (!title && (data.title || data.query)) title = data.title || data.query;
+        if (title) document.getElementById('info').textContent = title + ' - ' + streams[0].label;
+        buildSourcesUI();
+        playUrl(streams[0].url, streams[0].type);
+      })
+      .catch(function(err) {
+        showError('Failed to search: ' + err.message);
+      });
+    return;
+  }
+
+  // Mode 2: Direct proxy ID or inline URL (legacy)
   if (!id && !u) {
-    showError('Missing stream parameters. Use ?id= or ?u=&h=');
+    showError('Missing parameters. Use ?tmdb=ID or ?id= or ?u=&h=');
     return;
   }
 
@@ -47,53 +207,37 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     if (h) proxyUrl += '&h=' + encodeURIComponent(h);
   }
 
+  var embedType = params.get('type') || '';
   if (title) document.getElementById('info').textContent = title;
-
-  var container = document.getElementById('player');
-  container.innerHTML = '<video id="video" playsinline controls' + (autoplay ? ' autoplay' : '') + ' crossorigin></video>';
   document.getElementById('loading').classList.add('hidden');
-
-  var video = document.getElementById('video');
-
-  function initPlyr() {
-    new Plyr(video, {
-      controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
-      settings: ['quality', 'speed'],
-    });
-  }
-
+  createVideo();
   var isHls = embedType === 'm3u8' || (!embedType && (proxyUrl.includes('/proxy') || proxyUrl.includes('.m3u8')));
 
   if (isHls && Hls.isSupported()) {
-    var hls = new Hls();
-    hls.loadSource(proxyUrl);
-    hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, initPlyr);
-    hls.on(Hls.Events.ERROR, function(e, data) {
+    hlsInstance = new Hls();
+    hlsInstance.loadSource(proxyUrl);
+    hlsInstance.attachMedia(videoEl);
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, initPlyr);
+    hlsInstance.on(Hls.Events.ERROR, function(e, data) {
       if (data.fatal) {
-        hls.destroy();
-        video.src = proxyUrl;
-        initPlyr();
+        hlsInstance.destroy();
+        hlsInstance = null;
+        videoEl.src = proxyUrl;
+        videoEl.addEventListener('loadedmetadata', initPlyr, { once: true });
       }
     });
-  } else if (isHls && video.canPlayType('application/vnd.apple.mpegurl')) {
-    video.src = proxyUrl;
-    video.addEventListener('loadedmetadata', initPlyr);
+  } else if (isHls && videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+    videoEl.src = proxyUrl;
+    videoEl.addEventListener('loadedmetadata', initPlyr, { once: true });
   } else {
-    video.src = proxyUrl;
-    video.addEventListener('loadedmetadata', initPlyr);
+    videoEl.src = proxyUrl;
+    videoEl.addEventListener('loadedmetadata', initPlyr, { once: true });
   }
 
-  video.addEventListener('error', function() {
-    showError('Failed to load video. The source may be unavailable or expired.');
+  videoEl.addEventListener('error', function() {
+    showError('Failed to load video.');
   });
 
-  function showError(msg) {
-    document.getElementById('loading').classList.add('hidden');
-    var el = document.getElementById('error');
-    el.textContent = msg;
-    el.classList.remove('hidden');
-  }
 })();
 </script>
 </body>

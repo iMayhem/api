@@ -127,65 +127,27 @@
     <p class="highlight">The proxy forwards the client's <code>Range</code> header for seeking, streams the response with proper <code>Content-Type</code>, <code>Content-Length</code>, <code>Content-Range</code>, and <code>Accept-Ranges</code> headers, and follows redirects. HLS playlists (.m3u8) are rewritten so all segment requests also go through the proxy with the same headers.</p>
 
     <h2 id="embed">Embed Player</h2>
-    <p>The embeddable player at <code>/embed</code> provides a minimal, fullscreen video player that can be loaded in an iframe on any website.</p>
+    <p>The embeddable player at <code>/embed</code> provides a minimal, fullscreen video player. Just pass a TMDB ID — it handles the rest.</p>
 
     <h3>Parameters</h3>
     <table>
-      <tr><th>Param</th><th>Description</th></tr>
-      <tr><td><code>id</code></td><td>Proxy ID from Search API response (<code>proxyUrl</code> param)</td></tr>
-      <tr><td><code>u</code></td><td>Base64url-encoded stream URL (alternative to <code>id</code>)</td></tr>
-      <tr><td><code>h</code></td><td>Base64url-encoded JSON headers (required with <code>u</code>)</td></tr>
-      <tr><td><code>title</code></td><td>Optional title shown as overlay</td></tr>
-      <tr><td><code>type</code></td><td>Media type hint: <code>m3u8</code>, <code>mp4</code>, <code>mpd</code> (auto-detected if omitted)</td></tr>
-      <tr><td><code>autoplay</code></td><td>Set to <code>0</code> to disable autoplay (enabled by default)</td></tr>
+      <tr><th>Param</th><th>Required</th><th>Description</th></tr>
+      <tr><td><code>tmdb</code></td><td>yes*</td><td>TMDB ID (e.g. <code>550</code> for Fight Club)</td></tr>
+      <tr><td><code>type</code></td><td>no</td><td><code>movie</code> (default) or <code>tv</code></td></tr>
+      <tr><td><code>season</code></td><td>no</td><td>Season number for TV shows</td></tr>
+      <tr><td><code>episode</code></td><td>no</td><td>Episode number for TV shows</td></tr>
+      <tr><td><code>title</code></td><td>no</td><td>Title shown as overlay</td></tr>
+      <tr><td><code>autoplay</code></td><td>no</td><td>Set to <code>1</code> to enable autoplay (disabled by default for embeds)</td></tr>
     </table>
+    <p><small>* Alternatively, use <code>id</code> (proxy ID from search) or <code>u&amp;h</code> (base64 URL+headers) for direct stream access.</small></p>
 
     <h2 id="examples">Code Examples</h2>
 
     <div class="example-box">
-      <h4>1. Basic iframe Embed (using Search API)</h4>
-      <p>Search for streams, pick a source, then embed the player:</p>
-      <pre><code>// Step 1: Search for streams
-fetch('https://scrapers.moovie.fun/api/search?q=550&type=movie')
-  .then(r => r.json())
-  .then(data => {
-    const stream = data.results[0].streams[0];
-    const iframeUrl = 'https://scrapers.moovie.fun?id=' +
-      stream.proxyUrl.split('=')[1];
-
-    // Step 2: Create iframe
-    document.body.innerHTML +=
-      '&lt;iframe src="' + iframeUrl + '" width="100%" height="500" ' +
-      'frameborder="0" allowfullscreen&gt;&lt;/iframe&gt;';
-  });</code></pre>
-    </div>
-
-    <div class="example-box">
-      <h4>2. Direct iframe Embed (inline URL + headers)</h4>
-      <p>If you have a stream URL and headers from your own scraper, encode them:</p>
-      <pre><code>function b64url(str) {
-  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-const streamUrl = 'https://provider.com/stream.m3u8';
-const headers = { Referer: 'https://provider.com' };
-
-const u = b64url(streamUrl);
-const h = b64url(JSON.stringify(headers));
-
-const iframe = '&lt;iframe src="https://scrapers.moovie.fun' +
-  '?u=' + encodeURIComponent(u) +
-  '&amp;h=' + encodeURIComponent(h) +
-  '&amp;title=My+Movie" ' +
-  'width="100%" height="500" frameborder="0" allowfullscreen&gt;&lt;/iframe&gt;';
-
-document.body.innerHTML += iframe;</code></pre>
-    </div>
-
-    <div class="example-box">
-      <h4>3. HTML Embed Tag</h4>
+      <h4>1. Simplest iframe Embed (TMDB ID only)</h4>
+      <p>Just pass a TMDB ID — the embed searches for streams and plays the first available source:</p>
       <pre><code>&lt;iframe
-  src="https://scrapers.moovie.fun?id=abc123"
+  src="https://scrapers.moovie.fun/embed?tmdb=550"
   width="100%"
   height="500"
   frameborder="0"
@@ -195,10 +157,24 @@ document.body.innerHTML += iframe;</code></pre>
     </div>
 
     <div class="example-box">
-      <h4>4. React Component</h4>
-      <pre><code>function MoovieEmbed({ proxyId, title, width, height }) {
-  const src = 'https://scrapers.moovie.fun?id=' + proxyId +
-    (title ? '&amp;title=' + encodeURIComponent(title) : '');
+      <h4>2. TV Show Embed</h4>
+      <pre><code>&lt;iframe
+  src="https://scrapers.moovie.fun/embed?tmdb=1399&amp;type=tv&amp;season=1&amp;episode=1"
+  width="100%"
+  height="500"
+  frameborder="0"
+  allowfullscreen
+  allow="autoplay; encrypted-media"
+&gt;&lt;/iframe&gt;</code></pre>
+    </div>
+
+    <div class="example-box">
+      <h4>3. React Component</h4>
+      <pre><code>function MoovieEmbed({ tmdb, type, season, episode, width, height }) {
+  var src = 'https://scrapers.moovie.fun/embed?tmdb=' + tmdb +
+    (type ? '&amp;type=' + type : '');
+  if (season) src += '&amp;season=' + season;
+  if (episode) src += '&amp;episode=' + episode;
 
   return (
     &lt;iframe
@@ -213,33 +189,39 @@ document.body.innerHTML += iframe;</code></pre>
 }
 
 // Usage
-&lt;MoovieEmbed
-  proxyId="abc123"
-  title="Fight Club"
-/&gt;</code></pre>
+&lt;MoovieEmbed tmdb={550} type="movie" /&gt;
+&lt;MoovieEmbed tmdb={1399} type="tv" season={1} episode={1} /&gt;</code></pre>
     </div>
 
     <div class="example-box">
-      <h4>5. Programmatic Playback (without iframe)</h4>
-      <p>You can use the proxy URL directly in your own HLS.js player:</p>
+      <h4>4. Programmatic Playback (without iframe)</h4>
+      <p>Use the search + proxy API directly in your own player:</p>
       <pre><code>&lt;video id="video" controls crossorigin&gt;&lt;/video&gt;
 &lt;script src="https://cdn.jsdelivr.net/npm/hls.js@latest"&gt;&lt;/script&gt;
 &lt;script&gt;
-// Get proxy URL from Search API
 fetch('https://scrapers.moovie.fun/api/search?q=550&type=movie')
   .then(r => r.json())
   .then(data => {
-    const stream = data.results[0].streams[0];
-    const proxyUrl = 'https://scrapers.moovie.fun' + stream.proxyUrl;
+    var stream = data.results[0].streams[0];
+    var url = stream.proxyUrl; // relative path, use full URL for external
 
     if (Hls.isSupported()) {
-      const hls = new Hls();
-      hls.loadSource(proxyUrl);
+      var hls = new Hls();
+      hls.loadSource(url);
       hls.attachMedia(document.getElementById('video'));
     }
   });
 &lt;/script&gt;</code></pre>
     </div>
+
+    <div class="example-box">
+      <h4>5. Direct Stream (proxy ID or inline)</h4>
+      <p>If you already have a proxy ID or stream URL, you can pass it directly:</p>
+      <pre><code>&lt;!-- By proxy ID --&gt;
+&lt;iframe src="https://scrapers.moovie.fun/embed?id=abc123"&gt;&lt;/iframe&gt;
+
+&lt;!-- By inline URL + headers (base64url) --&gt;
+&lt;iframe src="https://scrapers.moovie.fun/embed?u=...&amp;h=..."&gt;&lt;/iframe&gt;</code></pre>
 
     <h2 id="reference">API Reference</h2>
 
