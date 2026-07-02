@@ -4,41 +4,166 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Moovie Embed</title>
-<link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,600,50&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.css">
 <style>
+:root {
+  --ink-900: #0b0a08;
+  --ink-800: #13110e;
+  --ink-700: #1c1915;
+  --bone-50: #f5efe4;
+  --bone-200: #c7bfb0;
+  --bone-300: #a79f8d;
+  --bone-400: #8a8270;
+  --ember: #ff5a1f;
+  --ember-600: #e84817;
+  --ember-glow: rgba(255, 90, 31, 0.35);
+  --rule: rgba(245, 239, 228, 0.08);
+  --rule-strong: rgba(245, 239, 228, 0.16);
+  --ambient: 255, 90, 31;
+  --font-display: 'Fraunces', 'Times New Roman', Georgia, serif;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --r-lg: 14px;
+  --r-md: 8px;
+  --dur-base: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; }
-#player { width: 100vw; height: 100vh; }
-#info { position: absolute; top: 12px; left: 12px; font-size: 13px; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.6); padding: 6px 12px; border-radius: 4px; pointer-events: none; z-index: 10; }
-#error { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #f85149; z-index: 20; font-size: 14px; background: rgba(0,0,0,0.8); padding: 16px 24px; border-radius: 8px; max-width: 80%; }
-#loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: rgba(255,255,255,0.5); z-index: 5; font-size: 14px; }
-.hidden { display: none !important; }
-.plyr--video { height: 100vh; }
-
-#sourceSelector {
-  position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
-  z-index: 15; background: rgba(0,0,0,0.85); border-radius: 8px;
-  padding: 8px; max-width: 90vw; display: flex; flex-wrap: wrap; gap: 6px;
-  justify-content: center; backdrop-filter: blur(4px);
+body {
+  background: var(--ink-900);
+  color: var(--bone-50);
+  font-family: var(--font-ui);
+  overflow: hidden;
+  position: relative;
 }
-#sourceSelector button {
-  background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2);
-  padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 12px;
-  white-space: nowrap; transition: background 0.15s;
+/* ── Film grain ──────────────────────────────────────────────────── */
+.grain {
+  position: fixed; inset: 0; z-index: 9999;
+  pointer-events: none; opacity: 0.035;
+  mix-blend-mode: overlay;
 }
-#sourceSelector button:hover { background: rgba(255,255,255,0.2); }
-#sourceSelector button.active { background: #e50914; border-color: #e50914; }
+.grain svg { width: 100%; height: 100%; }
+/* ── Ambient bloom ────────────────────────────────────────────────── */
+.bloom {
+  position: fixed; inset: 0; z-index: 0;
+  background: radial-gradient(ellipse at 50% 70%, rgba(var(--ambient), 0.18), transparent 70%);
+  pointer-events: none;
+}
+/* ── Status overlay ──────────────────────────────────────────────── */
+#status {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: var(--ink-900); padding: 1.5rem; text-align: center;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+#status.hidden { opacity: 0; pointer-events: none; }
+#status .spinner {
+  width: 44px; height: 44px;
+  border: 3px solid rgba(255, 90, 31, 0.15);
+  border-top-color: var(--ember);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 1.5rem;
+}
+#status .icon { font-size: 2.5rem; margin-bottom: 1rem; display: none; }
+#status .title {
+  font-family: var(--font-display); font-size: 1.5rem;
+  font-weight: 600; margin-bottom: 0.5rem;
+}
+#status .subtitle {
+  font-size: 0.875rem; color: var(--bone-400); max-width: 400px; line-height: 1.5;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+/* ── Player ──────────────────────────────────────────────────────── */
+#player { position: absolute; inset: 0; z-index: 1; }
+#player video { width: 100%; height: 100%; object-fit: contain; }
+/* ── Info badge ──────────────────────────────────────────────────── */
+#info {
+  position: absolute; top: 16px; left: 16px; z-index: 10;
+  font-family: var(--font-mono); font-size: 0.75rem; color: var(--bone-400);
+  background: rgba(11, 10, 8, 0.7); padding: 6px 12px; border-radius: var(--r-md);
+  backdrop-filter: blur(8px); border: 1px solid var(--rule); pointer-events: none;
+}
+/* ── Source selector ─────────────────────────────────────────────── */
+#selector {
+  position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%);
+  z-index: 15; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+  max-width: 90vw; padding: 8px;
+  background: rgba(11, 10, 8, 0.8); backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid var(--rule); border-radius: 10px;
+  transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
+}
+#selector.hidden { opacity: 0; transform: translateX(-50%) translateY(12px); pointer-events: none; }
+#selector button {
+  background: transparent; color: var(--bone-200); border: 1px solid var(--rule);
+  padding: 5px 14px; border-radius: var(--r-md); cursor: pointer;
+  font-size: 0.8125rem; font-family: var(--font-ui);
+  white-space: nowrap; transition: all 0.15s ease;
+}
+#selector button:hover {
+  background: rgba(255, 90, 31, 0.1); color: var(--ember);
+  border-color: rgba(255, 90, 31, 0.3);
+  filter: drop-shadow(0 0 4px rgba(255, 90, 31, 0.4));
+}
+#selector button.active {
+  background: var(--ember); color: #fff; border-color: var(--ember);
+  filter: drop-shadow(0 0 8px rgba(255, 90, 31, 0.5));
+}
+/* ── Plyr overrides ──────────────────────────────────────────────── */
+.plyr { width: 100% !important; height: 100% !important; background: transparent !important; }
+.plyr__video-wrapper { height: 100%; display: flex; align-items: center; justify-content: center; }
+.plyr video { width: 100% !important; height: 100% !important; object-fit: contain !important; }
+.plyr__controls {
+  background: rgba(11, 10, 8, 0.8) !important;
+  backdrop-filter: blur(14px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.2) !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 10px !important;
+  margin: 24px !important;
+  padding: 10px 16px !important;
+  position: absolute !important; bottom: 0 !important;
+  left: 0 !important; right: 0 !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 60px rgba(var(--ambient), 0.08) !important;
+  transition: opacity 0.3s ease, transform 0.3s ease !important;
+}
+.plyr__control { color: rgba(255, 90, 31, 0.8) !important; transition: all 0.15s ease !important; }
+.plyr__control:hover, .plyr__control[aria-expanded="true"] {
+  background: rgba(255, 90, 31, 0.1) !important;
+  color: #ff723f !important;
+  filter: drop-shadow(0 0 4px rgba(255, 90, 31, 0.6)) !important;
+}
+.plyr__control--pressed { color: var(--ember) !important; }
+.plyr--full-ui input[type='range'] { color: var(--ember) !important; }
+.plyr__menu__container { background: var(--ink-800) !important; border: 1px solid var(--rule-strong) !important; }
+.plyr__menu__container .plyr__control { color: var(--bone-200) !important; }
+.plyr__menu__container .plyr__control:hover { background: rgba(255, 90, 31, 0.1) !important; color: var(--ember) !important; }
+.plyr__controls .plyr__controls__item.plyr__progress { flex: 1 1 auto; }
 </style>
 </head>
 <body>
-<div id="loading">Loading player...</div>
-<div id="error" class="hidden"></div>
+<div class="grain">
+  <svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="none">
+    <filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/></filter>
+    <rect width="100" height="100" filter="url(#noise)" opacity="1"/>
+  </svg>
+</div>
+<div class="bloom"></div>
+
+<div id="status">
+  <div class="spinner" id="statusSpinner"></div>
+  <div class="icon" id="statusIcon"></div>
+  <div class="title" id="statusTitle">Threading the reel</div>
+  <div class="subtitle" id="statusSubtitle">Locating available sources across resolvers...</div>
+</div>
 <div id="info"></div>
-<div id="sourceSelector" class="hidden"></div>
+<div id="selector" class="hidden"></div>
 <div id="player"></div>
 
-<script src="https://cdn.plyr.io/3.7.8/plyr.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.min.js"></script>
 <script>
 (function() {
   var params = new URLSearchParams(location.search);
@@ -47,17 +172,54 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   var season = params.get('season') || '';
   var episode = params.get('episode') || '';
   var title = params.get('title') || '';
-  var autoplay = params.get('autoplay') !== '0';
+  var autoplay = params.get('autoplay') === '1';
   var id = params.get('id');
   var u = params.get('u');
   var h = params.get('h');
 
+  var loadingMessages = [
+    'Threading the reel',
+    'Cueing the projector',
+    'Striking the print',
+    'Rolling film',
+    'Syncing reels',
+    'Warming the gate',
+  ];
+
+  var statusEl = document.getElementById('status');
+  var statusSpinner = document.getElementById('statusSpinner');
+  var statusIcon = document.getElementById('statusIcon');
+  var statusTitle = document.getElementById('statusTitle');
+  var statusSubtitle = document.getElementById('statusSubtitle');
+  var infoEl = document.getElementById('info');
+  var selectorEl = document.getElementById('selector');
   var container = document.getElementById('player');
+
   var videoEl = null;
   var plyr = null;
   var hlsInstance = null;
   var currentSourceIndex = 0;
   var streams = [];
+  var loadingMsgIdx = 0;
+
+  function rotateLoading() {
+    if (statusEl.classList.contains('hidden')) return;
+    statusTitle.textContent = loadingMessages[loadingMsgIdx % loadingMessages.length];
+    loadingMsgIdx++;
+  }
+  setInterval(rotateLoading, 3000);
+
+  function setStatus(title, subtitle, showSpinner) {
+    statusTitle.textContent = title;
+    statusSubtitle.textContent = subtitle || '';
+    statusSpinner.style.display = showSpinner !== false ? 'block' : 'none';
+    statusIcon.style.display = showSpinner !== false ? 'none' : 'block';
+    statusEl.classList.remove('hidden');
+  }
+
+  function hideStatus() {
+    statusEl.classList.add('hidden');
+  }
 
   function createVideo() {
     container.innerHTML = '<video id="video" playsinline controls' + (autoplay ? ' autoplay' : '') + ' crossorigin></video>';
@@ -70,8 +232,19 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   function initPlyr() {
     if (plyr) plyr.destroy();
     plyr = new Plyr(videoEl, {
-      controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
-      settings: ['quality', 'speed'],
+      controls: [
+        'play-large',
+        'play',
+        'progress',
+        'current-time',
+        'duration',
+        'mute',
+        'volume',
+        'settings',
+        'pip',
+        'fullscreen',
+      ],
+      settings: ['quality', 'speed', 'loop'],
     });
   }
 
@@ -82,12 +255,11 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
 
   function playUrl(url, type) {
     destroyPlayer();
-    document.getElementById('loading').classList.add('hidden');
-    document.getElementById('error').classList.add('hidden');
+    hideStatus();
     createVideo();
     var isHls = type === 'm3u8' || (!type && (url.includes('/proxy') || url.includes('.m3u8')));
     if (isHls && Hls.isSupported()) {
-      hlsInstance = new Hls();
+      hlsInstance = new Hls({ maxMaxBufferLength: 30, enableWorker: true });
       hlsInstance.loadSource(url);
       hlsInstance.attachMedia(videoEl);
       hlsInstance.on(Hls.Events.MANIFEST_PARSED, initPlyr);
@@ -109,9 +281,8 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   }
 
   function buildSourcesUI() {
-    var sel = document.getElementById('sourceSelector');
-    sel.innerHTML = '';
-    sel.classList.remove('hidden');
+    selectorEl.innerHTML = '';
+    selectorEl.classList.remove('hidden');
     streams.forEach(function(s, i) {
       var btn = document.createElement('button');
       btn.textContent = s.label;
@@ -119,11 +290,11 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
       btn.addEventListener('click', function() {
         currentSourceIndex = i;
         playUrl(s.url, s.type);
-        sel.querySelectorAll('button').forEach(function(b) { b.className = ''; });
+        selectorEl.querySelectorAll('button').forEach(function(b) { b.className = ''; });
         btn.className = 'active';
-        if (title) document.getElementById('info').textContent = title + ' - ' + s.label;
+        infoEl.textContent = title ? title + ' · ' + s.label : s.label;
       });
-      sel.appendChild(btn);
+      selectorEl.appendChild(btn);
     });
   }
 
@@ -131,41 +302,36 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     if (currentSourceIndex + 1 < streams.length) {
       currentSourceIndex++;
       playUrl(streams[currentSourceIndex].url, streams[currentSourceIndex].type);
-      var sel = document.getElementById('sourceSelector');
-      sel.querySelectorAll('button').forEach(function(b, i) {
-        b.className = i === currentSourceIndex ? 'active' : '';
-      });
-      if (title) document.getElementById('info').textContent = title + ' - ' + streams[currentSourceIndex].label;
+      var btns = selectorEl.querySelectorAll('button');
+      btns.forEach(function(b, i) { b.className = i === currentSourceIndex ? 'active' : ''; });
+      infoEl.textContent = title ? title + ' · ' + streams[currentSourceIndex].label : streams[currentSourceIndex].label;
     } else {
-      showError('All sources failed to load.');
+      setStatus('The frame didn\'t catch', 'All sources failed to load. Try a different stream.', false);
     }
   }
 
   function showError(msg) {
     destroyPlayer();
-    document.getElementById('loading').classList.add('hidden');
-    var el = document.getElementById('error');
-    el.textContent = msg;
-    el.classList.remove('hidden');
+    setStatus('Unable to strike direct stream', msg || 'All resolution streams returned offline status.', false);
   }
 
-  // --- Main flow ---
+  // ── Main ──────────────────────────────────────────────────────────
 
   // Mode 1: TMDB ID — search API
   if (tmdb) {
-    document.getElementById('loading').textContent = 'Searching for streams...';
+    statusSubtitle.textContent = 'Contacting resolvers for TMDB ' + tmdb + '...';
     var searchUrl = '/api/search?q=' + encodeURIComponent(tmdb) + '&type=' + encodeURIComponent(mediaType);
     if (season) searchUrl += '&season=' + encodeURIComponent(season);
     if (episode) searchUrl += '&episode=' + encodeURIComponent(episode);
 
     fetch(searchUrl)
       .then(function(r) {
-        if (!r.ok) throw new Error('Search failed (HTTP ' + r.status + ')');
+        if (!r.ok) throw new Error('Search returned HTTP ' + r.status);
         return r.json();
       })
       .then(function(data) {
         if (!data.results || data.results.length === 0) {
-          showError('No streams found for this content.');
+          showError('No mirrors were found for this title.');
           return;
         }
         data.results.forEach(function(provider) {
@@ -178,24 +344,25 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
           });
         });
         if (streams.length === 0) {
-          showError('No playable streams found.');
+          showError('No playable mirrors were found.');
           return;
         }
-        document.getElementById('loading').textContent = 'Loading player...';
-        if (!title && (data.title || data.query)) title = data.title || data.query;
-        if (title) document.getElementById('info').textContent = title + ' - ' + streams[0].label;
+        if (!title) {
+          title = data.title || mediaType.charAt(0).toUpperCase() + mediaType.slice(1) + ' ' + tmdb;
+        }
+        infoEl.textContent = title + ' · ' + streams[0].label;
         buildSourcesUI();
         playUrl(streams[0].url, streams[0].type);
       })
       .catch(function(err) {
-        showError('Failed to search: ' + err.message);
+        showError(err.message);
       });
     return;
   }
 
   // Mode 2: Direct proxy ID or inline URL (legacy)
   if (!id && !u) {
-    showError('Missing parameters. Use ?tmdb=ID or ?id= or ?u=&h=');
+    showError('Pass ?tmdb=ID or ?id= for a proxy ID or ?u=&h= for inline stream.');
     return;
   }
 
@@ -208,13 +375,13 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   }
 
   var embedType = params.get('type') || '';
-  if (title) document.getElementById('info').textContent = title;
-  document.getElementById('loading').classList.add('hidden');
+  if (title) infoEl.textContent = title;
+  hideStatus();
   createVideo();
   var isHls = embedType === 'm3u8' || (!embedType && (proxyUrl.includes('/proxy') || proxyUrl.includes('.m3u8')));
 
   if (isHls && Hls.isSupported()) {
-    hlsInstance = new Hls();
+    hlsInstance = new Hls({ maxMaxBufferLength: 30, enableWorker: true });
     hlsInstance.loadSource(proxyUrl);
     hlsInstance.attachMedia(videoEl);
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, initPlyr);
@@ -235,9 +402,8 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   }
 
   videoEl.addEventListener('error', function() {
-    showError('Failed to load video.');
+    showError('Failed to load the stream.');
   });
-
 })();
 </script>
 </body>
