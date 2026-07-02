@@ -322,6 +322,7 @@ async function loadSettings() {
   document.getElementById('setProxyPort').value = cfg.proxy?.port || '';
   document.getElementById('setProxyUser').value = cfg.proxy?.username || '';
   document.getElementById('setProxyPass').value = cfg.proxy?.password || '';
+  document.getElementById('setAutoplay').checked = cfg.autoplay !== false;
 }
 
 async function saveSettings() {
@@ -339,6 +340,7 @@ async function saveSettings() {
       password: document.getElementById('setProxyPass').value,
     }
   };
+  body.autoplay = document.getElementById('setAutoplay').checked;
   await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
   const status = document.getElementById('settingsStatus');
   status.textContent = '✅ Settings saved! Restart server to apply port change.';

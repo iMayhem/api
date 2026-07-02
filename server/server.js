@@ -25,7 +25,7 @@ function loadConfig() {
   try {
     return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   } catch {
-    return { port: 3000, tmdbApiKey: '', proxy: { enabled: false }, globalTimeout: 20000, maxResultsPerProvider: 20, providers: {} };
+    return { port: 3000, tmdbApiKey: '', autoplay: true, proxy: { enabled: false }, globalTimeout: 20000, maxResultsPerProvider: 20, providers: {} };
   }
 }
 
@@ -245,12 +245,13 @@ app.get('/api/settings', (req, res) => {
 
 // Update settings
 app.put('/api/settings', (req, res) => {
-  const { port, tmdbApiKey, globalTimeout, maxResultsPerProvider, proxy } = req.body;
+  const { port, tmdbApiKey, globalTimeout, maxResultsPerProvider, proxy, autoplay } = req.body;
   if (port) config.port = port;
   if (tmdbApiKey) config.tmdbApiKey = tmdbApiKey;
   if (globalTimeout) config.globalTimeout = globalTimeout;
   if (maxResultsPerProvider) config.maxResultsPerProvider = maxResultsPerProvider;
   if (proxy) config.proxy = { ...config.proxy, ...proxy };
+  if (typeof autoplay === 'boolean') config.autoplay = autoplay;
   saveConfig();
   res.json(config);
 });

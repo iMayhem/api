@@ -6,6 +6,7 @@
 <title>Moovie Embed</title>
 <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
 <style>
+:root { --plyr-color-main: #ff5a1f; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; }
 #player { width: 100vw; height: 100vh; }
@@ -13,6 +14,8 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
 #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: rgba(255,255,255,0.5); z-index: 5; font-size: 14px; }
 .hidden { display: none !important; }
 .plyr--video { height: 100vh; }
+.plyr__control--autoplay { font-size: 12px; font-weight: 600; letter-spacing: 0.5px; padding: 6px 10px !important; }
+.plyr__control--autoplay.plyr__control--pressed { color: var(--plyr-color-main) !important; }
 </style>
 </head>
 <body>
@@ -29,6 +32,7 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   var mediaType = params.get('type') || 'movie';
   var season = params.get('season') || '';
   var episode = params.get('episode') || '';
+  var hasExplicitAutoplay = params.has('autoplay');
   var autoplay = params.get('autoplay') !== '0';
 
   // Parse path-based URLs: /embed/movie/:id or /embed/tv/:id/:season/:episode
@@ -42,6 +46,13 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     }
   }
 
+  // Fetch global autoplay setting from server
+  if (!hasExplicitAutoplay) {
+    fetch('/api/settings').then(function(r) { return r.json(); }).then(function(cfg) {
+      if (cfg.autoplay === false) { autoplay = false; updateAutoBtn(); }
+    }).catch(function() {});
+  }
+
   var container = document.getElementById('player');
   var loadingEl = document.getElementById('loading');
   var errorEl = document.getElementById('error');
@@ -50,6 +61,13 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   var hlsInstance = null;
   var streams = [];
   var currentIdx = 0;
+  var autoBtn = null;
+
+  function updateAutoBtn() {
+    if (!autoBtn) return;
+    autoBtn.classList.toggle('plyr__control--pressed', autoplay);
+    autoBtn.innerHTML = autoplay ? 'Auto' : 'Auto';
+  }
 
   function createVideo() {
     container.innerHTML = '<video id="video" playsinline' + (autoplay ? ' autoplay' : '') + ' crossorigin></video>';
@@ -64,6 +82,25 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
       controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
       settings: ['quality', 'speed'],
     });
+    plyr.on('controlsshow', injectAutoBtn);
+  }
+
+  function injectAutoBtn() {
+    if (autoBtn && autoBtn.parentNode) return;
+    if (!plyr.elements.controls) return;
+    autoBtn = document.createElement('button');
+    autoBtn.className = 'plyr__controls__item plyr__control plyr__control--autoplay';
+    if (autoplay) autoBtn.classList.add('plyr__control--pressed');
+    autoBtn.innerHTML = 'Auto';
+    autoBtn.setAttribute('aria-label', 'Toggle autoplay');
+    autoBtn.setAttribute('data-plyr', 'autoplay');
+    autoBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      autoplay = !autoplay;
+      updateAutoBtn();
+    });
+    var fsBtn = plyr.elements.controls.querySelector('[data-plyr="fullscreen"]');
+    if (fsBtn) fsBtn.parentNode.insertBefore(autoBtn, fsBtn);
   }
 
   function destroyPlayer() {
@@ -92,6 +129,9 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
       videoEl.src = url;
     } else {
       videoEl.src = url;
+    }
+    if (autoplay) {
+      videoEl.play().catch(function() {});
     }
   }
 
@@ -177,6 +217,7 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     videoEl.src = proxyUrl;
   }
 
+  if (autoplay) videoEl.play().catch(function() {});
   videoEl.addEventListener('error', function() { showError('Failed to load video.'); });
 })();
 </script>
