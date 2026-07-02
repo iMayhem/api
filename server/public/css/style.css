@@ -115,3 +115,31 @@ body { display: flex; min-height: 100vh; background: var(--bg); color: var(--tex
 .loading { padding: 40px; text-align: center; color: var(--text2); }
 .error-box { padding: 16px; background: var(--bg2); border: 1px solid var(--red); border-radius: 6px; color: var(--red); }
 .no-results { padding: 40px; text-align: center; color: var(--text2); }
+.hidden { display: none !important; }
+
+/* Player View */
+.plyr-wrapper { max-width: 100%; border-radius: 8px; overflow: hidden; background: #000; }
+.plyr-wrapper video { width: 100%; display: block; }
+.player-placeholder { padding: 60px 20px; text-align: center; color: var(--text2); background: var(--bg2); border: 2px dashed var(--border); border-radius: 8px; }
+.player-placeholder p { font-size: 16px; }
+
+/* Source Selector */
+.source-selector { margin-top: 20px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; max-height: 400px; overflow-y: auto; }
+.source-selector h3 { font-size: 15px; margin-bottom: 12px; }
+.source-list { display: flex; flex-direction: column; gap: 4px; }
+.source-group { margin-bottom: 8px; }
+.source-group-title { font-size: 13px; font-weight: 600; color: var(--text2); padding: 6px 0; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.source-item { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; transition: all .15s; margin-bottom: 3px; }
+.source-item:hover { border-color: var(--accent); background: var(--bg3); }
+.source-item .source-name { flex: 1; font-size: 13px; }
+.source-item .source-quality { font-size: 11px; padding: 2px 6px; border-radius: 3px; background: var(--bg2); }
+.source-item .source-size { font-size: 11px; color: var(--text2); }
+.source-item.q-4k { border-left: 3px solid #ff6b6b; }
+.source-item.q-1080 { border-left: 3px solid var(--green); }
+.source-item.q-720 { border-left: 3px solid var(--orange); }
+.source-item.q-auto { border-left: 3px solid var(--text2); }
+
+/* Play Badge on stream cards */
+.play-badge { position: absolute; top: 8px; right: 8px; background: var(--accent2); color: #fff; font-size: 11px; padding: 3px 10px; border-radius: 4px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.stream-card { position: relative; cursor: pointer; }
+.stream-card:hover .play-badge { opacity: 1; }

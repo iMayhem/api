@@ -1,5 +1,8 @@
 let providers = {};
 let providerOrder = [];
+let allStreams = [];
+let player = null;
+let hlsInstance = null;
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -29,7 +32,7 @@ async function doSearch() {
 
   const container = document.getElementById('results');
   const status = document.getElementById('statusBar');
-  container.innerHTML = '<div class="loading">🔍 Searching all enabled providers...</div>';
+  container.innerHTML = '<div class="loading">Searching all enabled providers...</div>';
   status.textContent = 'Searching...';
 
   try {
@@ -40,6 +43,17 @@ async function doSearch() {
     const data = await api(url);
     const total = data.results.reduce((s, r) => s + r.streams.length, 0);
     status.textContent = `Found ${total} streams from ${data.results.length} providers`;
+
+    allStreams = [];
+    for (const group of data.results) {
+      for (const s of group.streams) {
+        allStreams.push({
+          ...s,
+          _providerName: group.providerName,
+          _providerId: group.provider,
+        });
+      }
+    }
 
     if (data.results.length === 0) {
       container.innerHTML = '<div class="no-results">No streams found. Try a different ID or media type.<br>' +
@@ -64,10 +78,9 @@ async function doSearch() {
               const qClass = qual.includes('4k') || qual.includes('2160') || qual.includes('1080') ? 'q-high' :
                             qual.includes('720') ? 'q-med' : 'q-low';
               const url = s.url || '';
-              const escapedUrl = url.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+              const escapedUrl = encodeURIComponent(url);
               return `
-                <div class="stream-card ${qClass}">
-                  <button class="copy-btn" onclick="copyUrl('${escapedUrl}')">📋 Copy</button>
+                <div class="stream-card ${qClass}" onclick="playStream('${escapedUrl}', '${(s.name || 'Stream').replace(/'/g, "\\'")}', '${(s.quality || 'Auto').replace(/'/g, "\\'")}')">
                   <strong>${s.name || 'Stream'}</strong>
                   <div class="title">${(s.title || '').substring(0, 150)}</div>
                   <div class="url">${url.length > 120 ? url.substring(0, 120) + '...' : url}</div>
@@ -76,6 +89,7 @@ async function doSearch() {
                     ${s.size ? `<span>💾 ${s.size}</span>` : ''}
                     <span>🔗 ${s.provider || group.providerName}</span>
                   </div>
+                  <span class="play-badge">▶️ Play</span>
                 </div>`;
             }).join('')}
           </div>
@@ -88,16 +102,93 @@ async function doSearch() {
   }
 }
 
-function copyUrl(url) {
-  navigator.clipboard.writeText(url).then(() => {
-    const btn = event.target;
-    btn.textContent = '✅ Copied!';
-    setTimeout(() => btn.textContent = '📋 Copy', 2000);
-  }).catch(() => {
-    const btn = event.target;
-    btn.textContent = '❌ Failed';
-    setTimeout(() => btn.textContent = '📋 Copy', 2000);
-  });
+function detectType(url) {
+  if (url.includes('.m3u8')) return 'application/x-mpegURL';
+  if (url.includes('.mpd')) return 'application/dash+xml';
+  return 'video/mp4';
+}
+
+function playStream(encodedUrl, name, quality) {
+  const url = decodeURIComponent(encodedUrl);
+  switchView('player');
+  document.getElementById('playerMeta').textContent = `${name} ${quality ? '- ' + quality : ''}`;
+  loadPlayer(url, name);
+  renderSourceSelector();
+}
+
+function loadPlayer(url, title) {
+  const container = document.getElementById('playerContainer');
+
+  if (hlsInstance) {
+    hlsInstance.destroy();
+    hlsInstance = null;
+  }
+  if (player) {
+    player.destroy();
+    player = null;
+  }
+
+  const mimeType = detectType(url);
+
+  container.innerHTML = `
+    <div class="plyr-wrapper">
+      <video id="plyrVideo" playsinline controls crossorigin>
+        <source src="${url.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}" type="${mimeType}">
+      </video>
+    </div>`;
+
+  const video = document.getElementById('plyrVideo');
+
+  if (mimeType === 'application/x-mpegURL' && Hls.isSupported()) {
+    hlsInstance = new Hls();
+    hlsInstance.loadSource(url);
+    hlsInstance.attachMedia(video);
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+      player = new Plyr(video, {
+        controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
+        settings: ['quality', 'speed'],
+      });
+    });
+  } else {
+    video.src = url;
+    player = new Plyr(video, {
+      controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
+      settings: ['quality', 'speed'],
+    });
+  }
+}
+
+function renderSourceSelector() {
+  const selector = document.getElementById('sourceSelector');
+  const list = document.getElementById('sourceList');
+  selector.style.display = 'block';
+
+  const groups = {};
+  for (const s of allStreams) {
+    const key = s._providerName || 'Unknown';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(s);
+  }
+
+  let html = '';
+  for (const [provider, streams] of Object.entries(groups)) {
+    html += `<div class="source-group">
+      <div class="source-group-title">${provider}</div>`;
+    for (const s of streams) {
+      const qual = (s.quality || '').toLowerCase();
+      const qClass = qual.includes('4k') || qual.includes('2160') ? 'q-4k' :
+                    qual.includes('1080') ? 'q-1080' :
+                    qual.includes('720') ? 'q-720' : 'q-auto';
+      const encodedUrl = encodeURIComponent(s.url);
+      html += `<div class="source-item ${qClass}" onclick="playStream('${encodedUrl}', '${(s.name || 'Stream').replace(/'/g, "\\'")}', '${(s.quality || 'Auto').replace(/'/g, "\\'")}')">
+        <span class="source-name">${s.name || 'Stream'}</span>
+        <span class="source-quality">${s.quality || 'Auto'}</span>
+        ${s.size ? `<span class="source-size">${s.size}</span>` : ''}
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  list.innerHTML = html;
 }
 
 async function toggleProvider(id) {
@@ -118,7 +209,6 @@ async function toggleSubServer(providerId, serverName, enable) {
     method: 'POST',
     body: JSON.stringify({ disabledServers: disabled })
   });
-  // Refresh the sub-server section
   const section = document.querySelector(`.sub-servers[data-provider="${providerId}"]`);
   if (section) renderSubServers(section, providerId, p);
 }
