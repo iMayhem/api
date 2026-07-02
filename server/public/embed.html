@@ -31,6 +31,17 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   var episode = params.get('episode') || '';
   var autoplay = params.get('autoplay') !== '0';
 
+  // Parse path-based URLs: /embed/movie/:id or /embed/tv/:id/:season/:episode
+  if (!tmdb) {
+    var m = location.pathname.match(/\/embed\/(movie|tv)\/(\d+)(?:\/(\d+)\/(\d+))?/);
+    if (m) {
+      mediaType = m[1];
+      tmdb = m[2];
+      season = m[3] || '';
+      episode = m[4] || '';
+    }
+  }
+
   var container = document.getElementById('player');
   var loadingEl = document.getElementById('loading');
   var errorEl = document.getElementById('error');
@@ -149,7 +160,7 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   var u = params.get('u');
   var h = params.get('h');
   if (!id && !u) {
-    showError('Pass ?tmdb=ID to embed.');
+    showError('Pass ?tmdb=ID or use /embed/movie/ID or /embed/tv/ID/season/episode.');
     return;
   }
 

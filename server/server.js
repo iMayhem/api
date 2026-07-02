@@ -399,6 +399,12 @@ app.get('/proxy', async (req, res) => {
 app.get('/embed', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'embed.html'));
 });
+app.get('/embed/movie/:id', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'embed.html'));
+});
+app.get('/embed/tv/:id/:season/:episode', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'embed.html'));
+});
 
 // Documentation page
 app.get('/docs', (req, res) => {
