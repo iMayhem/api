@@ -124,21 +124,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Subdomain-aware routing: embed.moovie.fun and proxy.moovie.fun
-app.use((req, res, next) => {
-  const host = (req.headers.host || '').toLowerCase();
-  if (host === 'embed.moovie.fun') {
-    if (req.path.startsWith('/css/') || req.path.startsWith('/js/') || req.path.startsWith('/proxy') || req.path.startsWith('/api/')) return next();
-    return res.sendFile(path.join(__dirname, 'public', 'embed.html'));
-  }
-  if (host === 'proxy.moovie.fun') {
-    if (!req.path.startsWith('/proxy') && !req.path.startsWith('/api/') && !req.path.startsWith('/css/') && !req.path.startsWith('/js/')) {
-      return res.status(404).send('proxy.moovie.fun only serves /proxy');
-    }
-  }
-  next();
-});
-
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ============ API Routes ============
@@ -432,7 +417,7 @@ async function start() {
   console.log(`Loaded ${Object.keys(providers).length} providers`);
   app.listen(config.port, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${config.port}`);
-    console.log(`  Subdomains: embed.moovie.fun → embed.html  |  proxy.moovie.fun → /proxy`);
+    console.log(`  Embed player: /embed  |  Proxy: /proxy  |  Docs: /docs`);
     const os = require('os');
     const nets = os.networkInterfaces();
     for (const name of Object.keys(nets)) {

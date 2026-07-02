@@ -59,13 +59,6 @@
     <p>Moovie Embed is a backend stream proxy that aggregates media sources from 60+ providers and makes them playable through a single, embeddable video player. The browser communicates only with this server &mdash; never directly with third-party providers.</p>
     <p class="highlight">Every provider URL is proxied through the backend. The scraper's required headers (Referer, Origin, User-Agent, etc.) are applied server-side. The frontend receives a proxy URL that works transparently.</p>
 
-    <h3>Subdomains</h3>
-    <table>
-      <tr><th>Subdomain</th><th>Purpose</th></tr>
-      <tr><td><code>proxy.moovie.fun</code></td><td>Proxy endpoint — serves <code>/proxy</code> and <code>/api</code>. Use this for direct API/proxy access.</td></tr>
-      <tr><td><code>embed.moovie.fun</code></td><td>Embeddable player — serves <code>/embed</code> and routes all other paths to the embed player. Internal proxy requests are forwarded to <code>proxy.moovie.fun</code>.</td></tr>
-    </table>
-
     <h3>How It Works</h3>
     <p>1. Client calls the Search API with a TMDB ID → 2. Server scrapes 60+ providers in parallel → 3. Each stream URL is replaced with a proxy URL pointing to this server → 4. The proxy fetches the actual stream from the provider with the correct headers → 5. HLS playlists are rewritten so segments also go through the proxy → 6. The client plays the stream without ever hitting the provider directly.</p>
 
@@ -153,11 +146,11 @@
       <h4>1. Basic iframe Embed (using Search API)</h4>
       <p>Search for streams, pick a source, then embed the player:</p>
       <pre><code>// Step 1: Search for streams
-fetch('https://proxy.moovie.fun/api/search?q=550&type=movie')
+fetch('https://scrapers.moovie.fun/api/search?q=550&type=movie')
   .then(r => r.json())
   .then(data => {
     const stream = data.results[0].streams[0];
-    const iframeUrl = 'https://embed.moovie.fun?id=' +
+    const iframeUrl = 'https://scrapers.moovie.fun?id=' +
       stream.proxyUrl.split('=')[1];
 
     // Step 2: Create iframe
@@ -180,7 +173,7 @@ const headers = { Referer: 'https://provider.com' };
 const u = b64url(streamUrl);
 const h = b64url(JSON.stringify(headers));
 
-const iframe = '&lt;iframe src="https://embed.moovie.fun' +
+const iframe = '&lt;iframe src="https://scrapers.moovie.fun' +
   '?u=' + encodeURIComponent(u) +
   '&amp;h=' + encodeURIComponent(h) +
   '&amp;title=My+Movie" ' +
@@ -192,7 +185,7 @@ document.body.innerHTML += iframe;</code></pre>
     <div class="example-box">
       <h4>3. HTML Embed Tag</h4>
       <pre><code>&lt;iframe
-  src="https://embed.moovie.fun?id=abc123"
+  src="https://scrapers.moovie.fun?id=abc123"
   width="100%"
   height="500"
   frameborder="0"
@@ -204,7 +197,7 @@ document.body.innerHTML += iframe;</code></pre>
     <div class="example-box">
       <h4>4. React Component</h4>
       <pre><code>function MoovieEmbed({ proxyId, title, width, height }) {
-  const src = 'https://embed.moovie.fun?id=' + proxyId +
+  const src = 'https://scrapers.moovie.fun?id=' + proxyId +
     (title ? '&amp;title=' + encodeURIComponent(title) : '');
 
   return (
@@ -233,11 +226,11 @@ document.body.innerHTML += iframe;</code></pre>
 &lt;script src="https://cdn.jsdelivr.net/npm/hls.js@latest"&gt;&lt;/script&gt;
 &lt;script&gt;
 // Get proxy URL from Search API
-fetch('https://proxy.moovie.fun/api/search?q=550&type=movie')
+fetch('https://scrapers.moovie.fun/api/search?q=550&type=movie')
   .then(r => r.json())
   .then(data => {
     const stream = data.results[0].streams[0];
-    const proxyUrl = 'https://proxy.moovie.fun' + stream.proxyUrl;
+    const proxyUrl = 'https://scrapers.moovie.fun' + stream.proxyUrl;
 
     if (Hls.isSupported()) {
       const hls = new Hls();
@@ -279,7 +272,7 @@ fetch('https://proxy.moovie.fun/api/search?q=550&type=movie')
       <strong>CORS is enabled globally.</strong> All API endpoints and the embed page can be loaded from any origin.
     </blockquote>
     <blockquote>
-      <strong>Subdomains:</strong> Use <code>proxy.moovie.fun</code> for API and proxy requests, <code>embed.moovie.fun</code> for embed player. Both point to the same server and route requests appropriately based on the Host header.
+      <strong>All requests go to the same server.</strong> Use <code>scrapers.moovie.fun</code> for API, proxy, embed, and docs — everything is served from a single endpoint.
     </blockquote>
   </div>
 </main>
