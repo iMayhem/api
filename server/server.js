@@ -25,7 +25,7 @@ function loadConfig() {
   try {
     return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   } catch {
-    return { port: 3000, tmdbApiKey: '', autoplay: true, proxy: { enabled: false }, globalTimeout: 20000, maxResultsPerProvider: 20, providers: {} };
+    return { port: 3000, tmdbApiKey: '', autoplay: true, introSkip: false, proxy: { enabled: false }, globalTimeout: 20000, maxResultsPerProvider: 20, providers: {} };
   }
 }
 
@@ -245,15 +245,34 @@ app.get('/api/settings', (req, res) => {
 
 // Update settings
 app.put('/api/settings', (req, res) => {
-  const { port, tmdbApiKey, globalTimeout, maxResultsPerProvider, proxy, autoplay } = req.body;
+  const { port, tmdbApiKey, globalTimeout, maxResultsPerProvider, proxy, autoplay, introSkip } = req.body;
   if (port) config.port = port;
   if (tmdbApiKey) config.tmdbApiKey = tmdbApiKey;
   if (globalTimeout) config.globalTimeout = globalTimeout;
   if (maxResultsPerProvider) config.maxResultsPerProvider = maxResultsPerProvider;
   if (proxy) config.proxy = { ...config.proxy, ...proxy };
   if (typeof autoplay === 'boolean') config.autoplay = autoplay;
+  if (typeof introSkip === 'boolean') config.introSkip = introSkip;
   saveConfig();
   res.json(config);
+});
+
+// Intro/credits timestamps via theintrodb.org
+app.get('/api/intro-timestamps', async (req, res) => {
+  const { tmdb_id, type, season, episode, duration_ms } = req.query;
+  if (!tmdb_id) return res.status(400).json({ error: 'tmdb_id required' });
+  try {
+    var apiUrl = 'https://api.theintrodb.org/v3/media?tmdb_id=' + encodeURIComponent(tmdb_id) + '&type=' + encodeURIComponent(type || 'movie');
+    if (season) apiUrl += '&season=' + encodeURIComponent(season);
+    if (episode) apiUrl += '&episode=' + encodeURIComponent(episode);
+    if (duration_ms) apiUrl += '&duration_ms=' + encodeURIComponent(duration_ms);
+    const apiRes = await fetch(apiUrl);
+    if (!apiRes.ok) return res.status(apiRes.status).json({ error: 'introdb fetch failed' });
+    const data = await apiRes.json();
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Discover servers for a provider (run a test search)

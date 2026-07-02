@@ -323,6 +323,7 @@ async function loadSettings() {
   document.getElementById('setProxyUser').value = cfg.proxy?.username || '';
   document.getElementById('setProxyPass').value = cfg.proxy?.password || '';
   document.getElementById('setAutoplay').checked = cfg.autoplay !== false;
+  document.getElementById('setIntroSkip').checked = cfg.introSkip === true;
 }
 
 async function saveSettings() {
@@ -341,6 +342,7 @@ async function saveSettings() {
     }
   };
   body.autoplay = document.getElementById('setAutoplay').checked;
+  body.introSkip = document.getElementById('setIntroSkip').checked;
   await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
   const status = document.getElementById('settingsStatus');
   status.textContent = '✅ Settings saved! Restart server to apply port change.';

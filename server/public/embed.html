@@ -12,6 +12,7 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
 #player { width: 100vw; height: 100vh; }
 #error { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #f85149; z-index: 20; font-size: 14px; background: rgba(0,0,0,0.8); padding: 16px 24px; border-radius: 8px; max-width: 80%; }
 #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: rgba(255,255,255,0.5); z-index: 5; font-size: 14px; }
+#skipMsg { position: absolute; top: 20px; right: 20px; z-index: 15; color: #ff5a1f; font-size: 13px; background: rgba(0,0,0,0.7); padding: 6px 14px; border-radius: 6px; pointer-events: none; transition: opacity 0.3s; }
 .hidden { display: none !important; }
 .plyr--video { height: 100vh; }
 .plyr__control--autoplay { font-size: 12px; font-weight: 600; letter-spacing: 0.5px; padding: 6px 10px !important; }
@@ -21,6 +22,7 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
 <body>
 <div id="loading">Loading player...</div>
 <div id="error" class="hidden"></div>
+<div id="skipMsg" class="hidden"></div>
 <div id="player"></div>
 
 <script src="https://cdn.plyr.io/3.7.8/plyr.js"></script>
@@ -34,8 +36,11 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   var episode = params.get('episode') || '';
   var hasExplicitAutoplay = params.has('autoplay');
   var autoplay = params.get('autoplay') !== '0';
+  var introSkip = true;
+  var hasExplicitSkip = params.has('skipintro');
+  if (hasExplicitSkip) introSkip = params.get('skipintro') !== '0';
 
-  // Parse path-based URLs: /embed/movie/:id or /embed/tv/:id/:season/:episode
+  // Parse path-based URLs
   if (!tmdb) {
     var m = location.pathname.match(/\/embed\/(movie|tv)\/(\d+)(?:\/(\d+)\/(\d+))?/);
     if (m) {
@@ -46,33 +51,111 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     }
   }
 
-  // Fetch global autoplay setting from server
-  if (!hasExplicitAutoplay) {
-    fetch('/api/settings').then(function(r) { return r.json(); }).then(function(cfg) {
-      if (cfg.autoplay === false) { autoplay = false; updateAutoBtn(); }
-    }).catch(function() {});
-  }
+  // Fetch global settings
+  fetch('/api/settings').then(function(r) { return r.json(); }).then(function(cfg) {
+    if (!hasExplicitAutoplay && cfg.autoplay === false) { autoplay = false; updateAutoBtn(); }
+    if (!hasExplicitSkip && cfg.introSkip !== true) introSkip = false;
+  }).catch(function() {});
 
   var container = document.getElementById('player');
   var loadingEl = document.getElementById('loading');
   var errorEl = document.getElementById('error');
+  var skipMsgEl = document.getElementById('skipMsg');
   var videoEl = null;
   var plyr = null;
   var hlsInstance = null;
   var streams = [];
   var currentIdx = 0;
   var autoBtn = null;
+  var segments = null;
+  var skipActive = false;
 
   function updateAutoBtn() {
     if (!autoBtn) return;
     autoBtn.classList.toggle('plyr__control--pressed', autoplay);
-    autoBtn.innerHTML = autoplay ? 'Auto' : 'Auto';
+  }
+
+  function showSkipMsg(text) {
+    skipMsgEl.textContent = text;
+    skipMsgEl.classList.remove('hidden');
+    clearTimeout(skipMsgEl._timer);
+    skipMsgEl._timer = setTimeout(function() { skipMsgEl.classList.add('hidden'); }, 3000);
+  }
+
+  function fetchTimestamps() {
+    if (!introSkip || !tmdb) return;
+    var url = '/api/intro-timestamps?tmdb_id=' + encodeURIComponent(tmdb) + '&type=' + encodeURIComponent(mediaType);
+    if (season) url += '&season=' + encodeURIComponent(season);
+    if (episode) url += '&episode=' + encodeURIComponent(episode);
+    fetch(url).then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
+      segments = d;
+    }).catch(function() {});
+  }
+
+  function checkSkip() {
+    if (!segments || !videoEl || skipActive) return;
+    var t = videoEl.currentTime * 1000;
+    var dur = (videoEl.duration || 0) * 1000;
+
+    // Skip intro: jump to end_ms if within intro range
+    if (segments.intro && segments.intro.length) {
+      var intro = segments.intro[0];
+      var start = intro.start_ms || 0;
+      var end = intro.end_ms;
+      if (end && t >= start && t < end && end < dur - 5000) {
+        skipActive = true;
+        showSkipMsg('⏭ Skipping intro');
+        videoEl.currentTime = end / 1000;
+        setTimeout(function() { skipActive = false; }, 500);
+        return;
+      }
+    }
+
+    // Skip recap
+    if (segments.recap && segments.recap.length) {
+      var recap = segments.recap[0];
+      var rStart = recap.start_ms || 0;
+      var rEnd = recap.end_ms;
+      if (rEnd && t >= rStart && t < rEnd && rEnd < dur - 5000) {
+        skipActive = true;
+        showSkipMsg('⏭ Skipping recap');
+        videoEl.currentTime = rEnd / 1000;
+        setTimeout(function() { skipActive = false; }, 500);
+        return;
+      }
+    }
+
+    // Skip credits
+    if (segments.credits && segments.credits.length) {
+      var cred = segments.credits[0];
+      if (cred.start_ms && t >= cred.start_ms && (!cred.end_ms || t < cred.end_ms)) {
+        skipActive = true;
+        var target = cred.end_ms ? cred.end_ms / 1000 : videoEl.duration;
+        showSkipMsg('⏭ Skipping credits');
+        videoEl.currentTime = target;
+        setTimeout(function() { skipActive = false; }, 500);
+        return;
+      }
+    }
+
+    // Skip preview
+    if (segments.preview && segments.preview.length) {
+      var prev = segments.preview[0];
+      if (prev.start_ms && t >= prev.start_ms && (!prev.end_ms || t < prev.end_ms)) {
+        skipActive = true;
+        var pTarget = prev.end_ms ? prev.end_ms / 1000 : videoEl.duration;
+        showSkipMsg('⏭ Skipping preview');
+        videoEl.currentTime = pTarget;
+        setTimeout(function() { skipActive = false; }, 500);
+      }
+    }
   }
 
   function createVideo() {
     container.innerHTML = '<video id="video" playsinline' + (autoplay ? ' autoplay' : '') + ' crossorigin></video>';
     videoEl = document.getElementById('video');
     videoEl.addEventListener('error', function() { tryNext(); });
+    videoEl.addEventListener('timeupdate', checkSkip);
     initPlyr();
   }
 
@@ -113,6 +196,7 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     loadingEl.classList.add('hidden');
     errorEl.classList.add('hidden');
     createVideo();
+    fetchTimestamps();
     var isHls = type === 'm3u8' || (!type && (url.includes('/proxy') || url.includes('.m3u8')));
     if (isHls && Hls.isSupported()) {
       hlsInstance = new Hls();
@@ -130,9 +214,7 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     } else {
       videoEl.src = url;
     }
-    if (autoplay) {
-      videoEl.play().catch(function() {});
-    }
+    if (autoplay) videoEl.play().catch(function() {});
   }
 
   function tryNext() {
@@ -153,7 +235,7 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
 
   // ── Main ──────────────────────────────────────────────────────────
 
-  // TMDB mode: server searches for streams
+  // TMDB mode
   if (tmdb) {
     loadingEl.textContent = 'Finding streams...';
     var typesToTry = [];
@@ -192,7 +274,7 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     return;
   }
 
-  // Legacy: direct proxy ID or inline URL
+  // Legacy mode
   var id = params.get('id');
   var u = params.get('u');
   var h = params.get('h');
