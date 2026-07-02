@@ -108,28 +108,39 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   // TMDB mode: server searches for streams
   if (tmdb) {
     loadingEl.textContent = 'Finding streams...';
-    var searchUrl = '/api/search?q=' + encodeURIComponent(tmdb) + '&type=' + encodeURIComponent(mediaType);
-    if (season) searchUrl += '&season=' + encodeURIComponent(season);
-    if (episode) searchUrl += '&episode=' + encodeURIComponent(episode);
+    var typesToTry = [];
+    if (params.get('type')) {
+      typesToTry.push({ type: mediaType, season: season, episode: episode });
+    } else {
+      typesToTry.push({ type: 'movie', season: '', episode: '' });
+      typesToTry.push({ type: 'tv', season: season || '1', episode: episode || '1' });
+    }
 
-    fetch(searchUrl)
-      .then(function(r) {
-        if (!r.ok) throw new Error('Search failed');
-        return r.json();
-      })
-      .then(function(data) {
-        (data.results || []).forEach(function(p) {
-          (p.streams || []).forEach(function(s) {
-            streams.push({ url: s.proxyUrl, type: s.type || 'm3u8' });
-          });
-        });
-        if (streams.length === 0) { showError('No streams found.'); return; }
-        loadingEl.textContent = 'Starting playback...';
-        playUrl(streams[0].url, streams[0].type);
-      })
-      .catch(function(err) {
-        showError('Failed to search: ' + err.message);
-      });
+    function tryType(idx) {
+      if (idx >= typesToTry.length) {
+        if (streams.length === 0) showError('No streams found.');
+        else { loadingEl.textContent = 'Starting playback...'; playUrl(streams[0].url, streams[0].type); }
+        return;
+      }
+      var t = typesToTry[idx];
+      var url = '/api/search?q=' + encodeURIComponent(tmdb) + '&type=' + encodeURIComponent(t.type);
+      if (t.season) url += '&season=' + encodeURIComponent(t.season);
+      if (t.episode) url += '&episode=' + encodeURIComponent(t.episode);
+      fetch(url)
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+          if (data && data.totalStreams > 0) {
+            (data.results || []).forEach(function(p) {
+              (p.streams || []).forEach(function(s) {
+                streams.push({ url: s.proxyUrl, type: s.type || 'm3u8' });
+              });
+            });
+          }
+          tryType(idx + 1);
+        })
+        .catch(function() { tryType(idx + 1); });
+    }
+    tryType(0);
     return;
   }
 
