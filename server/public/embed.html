@@ -52,9 +52,10 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   var currentIdx = 0;
 
   function createVideo() {
-    container.innerHTML = '<video id="video" playsinline controls' + (autoplay ? ' autoplay' : '') + ' crossorigin></video>';
+    container.innerHTML = '<video id="video" playsinline' + (autoplay ? ' autoplay' : '') + ' crossorigin></video>';
     videoEl = document.getElementById('video');
     videoEl.addEventListener('error', function() { tryNext(); });
+    initPlyr();
   }
 
   function initPlyr() {
@@ -80,21 +81,17 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
       hlsInstance = new Hls();
       hlsInstance.loadSource(url);
       hlsInstance.attachMedia(videoEl);
-      hlsInstance.on(Hls.Events.MANIFEST_PARSED, initPlyr);
       hlsInstance.on(Hls.Events.ERROR, function(e, data) {
         if (data.fatal) {
           hlsInstance.destroy();
           hlsInstance = null;
           videoEl.src = url;
-          videoEl.addEventListener('loadedmetadata', initPlyr, { once: true });
         }
       });
     } else if (isHls && videoEl.canPlayType('application/vnd.apple.mpegurl')) {
       videoEl.src = url;
-      videoEl.addEventListener('loadedmetadata', initPlyr, { once: true });
     } else {
       videoEl.src = url;
-      videoEl.addEventListener('loadedmetadata', initPlyr, { once: true });
     }
   }
 
@@ -174,21 +171,10 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     hlsInstance = new Hls();
     hlsInstance.loadSource(proxyUrl);
     hlsInstance.attachMedia(videoEl);
-    hlsInstance.on(Hls.Events.MANIFEST_PARSED, initPlyr);
-    hlsInstance.on(Hls.Events.ERROR, function(e, data) {
-      if (data.fatal) {
-        hlsInstance.destroy();
-        hlsInstance = null;
-        videoEl.src = proxyUrl;
-        videoEl.addEventListener('loadedmetadata', initPlyr, { once: true });
-      }
-    });
   } else if (isHls && videoEl.canPlayType('application/vnd.apple.mpegurl')) {
     videoEl.src = proxyUrl;
-    videoEl.addEventListener('loadedmetadata', initPlyr, { once: true });
   } else {
     videoEl.src = proxyUrl;
-    videoEl.addEventListener('loadedmetadata', initPlyr, { once: true });
   }
 
   videoEl.addEventListener('error', function() { showError('Failed to load video.'); });
