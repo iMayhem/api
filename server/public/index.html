@@ -57,12 +57,31 @@
       <h2>▶️ Media Player</h2>
       <p id="playerMeta">Select a stream from search results to play</p>
     </div>
+    <div class="test-bar">
+      <div class="test-inputs">
+        <input type="text" id="testTmdbId" placeholder="TMDB ID (e.g. 550)" onkeydown="if(event.key==='Enter') startTest()">
+        <select id="testTypeSelect">
+          <option value="movie">🎬 Movie</option>
+          <option value="tv">📺 TV Show</option>
+        </select>
+        <label>Season: <input type="number" id="testSeason" min="1" placeholder="1" class="test-sm-input"></label>
+        <label>Episode: <input type="number" id="testEpisode" min="1" placeholder="1" class="test-sm-input"></label>
+        <button id="testBtn" onclick="startTest()">🧪 Test</button>
+      </div>
+    </div>
     <div id="playerContainer" style="position:relative">
       <video id="plyrVideo" playsinline controls preload="auto" crossorigin></video>
     </div>
     <div id="sourceSelector" class="source-selector" style="display:none">
       <h3>📡 Source Selection</h3>
       <div id="sourceList" class="source-list"></div>
+    </div>
+    <div id="testPanel" class="test-panel" style="display:none">
+      <div class="test-panel-header">
+        <h3>📋 Realtime Scrape Log</h3>
+        <button class="btn-secondary" onclick="clearTestLog()">Clear</button>
+      </div>
+      <div id="testLog" class="test-log"></div>
     </div>
   </div>
 

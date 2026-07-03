@@ -239,6 +239,77 @@ app.get('/api/search', async (req, res) => {
   res.json({ query, type, results, errors, totalStreams: results.reduce((s, r) => s + r.streams.length, 0) });
 });
 
+// Streaming search (SSE) — for real-time test panel
+app.get('/api/search/stream', async (req, res) => {
+  const { q: query, type = 'movie', season, episode } = req.query;
+  if (!query) return res.status(400).json({ error: 'Missing query' });
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.flushHeaders();
+
+  function emit(event, data) {
+    try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch (e) {}
+  }
+
+  // Flush after every emit to ensure real-time delivery
+  const origWrite = res.write.bind(res);
+  res.write = function(chunk) {
+    const ret = origWrite(chunk);
+    if (typeof res.flush === 'function') res.flush();
+    return ret;
+  };
+
+  const enabledProviders = getEnabledProvidersSorted();
+  const results = [];
+  const errors = [];
+  const timeoutMs = config.globalTimeout || 20000;
+
+  emit('start', { total: enabledProviders.length });
+
+  for (const [id, pConfig] of enabledProviders) {
+    const name = providerMeta[id]?.name || id;
+    emit('provider-start', { provider: id, name });
+    try {
+      const mod = providers[id];
+      const streamPromise = mod.getStreams(query, type, season || null, episode || null);
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeoutMs));
+      const streams = await Promise.race([streamPromise, timeoutPromise]);
+      if (streams && streams.length > 0) {
+        const filtered = filterStreams(streams, id);
+        for (const stream of filtered.slice(0, config.maxResultsPerProvider || 20)) {
+          if (!stream.type) {
+            if (stream.url.includes('.m3u8')) stream.type = 'm3u8';
+            else if (stream.url.includes('.mpd')) stream.type = 'mpd';
+            else if (stream.url.includes('.ts')) stream.type = 'ts';
+            else if (stream.url.includes('.mp4')) stream.type = 'mp4';
+            else if (stream.url.includes('.mkv')) stream.type = 'mkv';
+            else stream.type = 'mp4';
+          }
+          const storeId = generateStreamId();
+          streamStore.set(storeId, { url: stream.url, headers: stream.headers || {}, type: stream.type });
+          stream.proxyUrl = `/proxy?id=${storeId}`;
+          emit('stream', { provider: id, name, quality: stream.quality || 'Auto', url: stream.url, proxyUrl: stream.proxyUrl, type: stream.type, title: stream.title || '' });
+        }
+        emit('provider-done', { provider: id, name, count: filtered.length, servers: extractStreamServers(filtered) });
+        results.push({ provider: id, providerName: name, priority: pConfig.priority, count: filtered.length, servers: extractStreamServers(filtered), streams: filtered.slice(0, config.maxResultsPerProvider || 20) });
+      } else {
+        emit('provider-empty', { provider: id, name });
+      }
+    } catch (e) {
+      emit('provider-error', { provider: id, name, error: e.message });
+      errors.push({ provider: id, error: e.message });
+    }
+  }
+
+  emit('done', { results, errors, totalStreams: results.reduce((s, r) => s + r.streams.length, 0) });
+  res.end();
+});
+
 // Get settings
 app.get('/api/settings', (req, res) => {
   res.json(config);

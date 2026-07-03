@@ -795,4 +795,99 @@ function connectAnalyticsRealtime() {
   };
 }
 
+// ── Test Panel ─────────────────────────────────────────────────────────
+let testEventSource = null;
+let testLogLines = 0;
+
+function startTest() {
+  const query = document.getElementById('testTmdbId').value.trim();
+  if (!query) { alert('Enter a TMDB ID'); return; }
+  const type = document.getElementById('testTypeSelect').value;
+  const season = document.getElementById('testSeason').value;
+  const episode = document.getElementById('testEpisode').value;
+
+  const panel = document.getElementById('testPanel');
+  const log = document.getElementById('testLog');
+  panel.style.display = 'block';
+  log.innerHTML = '<div class="test-log-entry test-log-info"><span class="test-log-time">' + new Date().toLocaleTimeString() + '</span> 🚀 Starting scrape for <strong>' + query + '</strong> (' + type + (season ? ' S' + season + (episode ? 'E' + episode : '') : '') + ')...</div>';
+  testLogLines = 1;
+
+  document.getElementById('testBtn').disabled = true;
+  document.getElementById('testBtn').textContent = '⏳ Scraping...';
+
+  if (testEventSource) testEventSource.close();
+
+  let url = '/api/search/stream?q=' + encodeURIComponent(query) + '&type=' + type;
+  if (season) url += '&season=' + season;
+  if (episode) url += '&episode=' + episode;
+
+  testEventSource = new EventSource(url);
+
+  testEventSource.addEventListener('start', function(e) {
+    const data = JSON.parse(e.data);
+    appendTestLog('info', '🔍 Testing ' + data.total + ' enabled provider(s)...');
+  });
+
+  testEventSource.addEventListener('provider-start', function(e) {
+    const data = JSON.parse(e.data);
+    appendTestLog('provider', '⏳ <strong>' + data.name + '</strong> scraping...');
+  });
+
+  testEventSource.addEventListener('stream', function(e) {
+    const data = JSON.parse(e.data);
+    appendTestLog('stream', '  ✅ <strong>' + data.name + '</strong> | ' + data.quality + ' → <span class="test-url">' + (data.url.length > 100 ? data.url.substring(0, 100) + '...' : data.url) + '</span>');
+  });
+
+  testEventSource.addEventListener('provider-done', function(e) {
+    const data = JSON.parse(e.data);
+    appendTestLog('success', '✅ <strong>' + data.name + '</strong> done — <strong>' + data.count + '</strong> stream(s) found' + (data.servers && data.servers.length ? ' [' + data.servers.join(', ') + ']' : ''));
+  });
+
+  testEventSource.addEventListener('provider-empty', function(e) {
+    const data = JSON.parse(e.data);
+    appendTestLog('warn', '⚠️ <strong>' + data.name + '</strong> returned no streams');
+  });
+
+  testEventSource.addEventListener('provider-error', function(e) {
+    const data = JSON.parse(e.data);
+    appendTestLog('error', '❌ <strong>' + data.name + '</strong> error: ' + data.error);
+  });
+
+  testEventSource.addEventListener('done', function(e) {
+    const data = JSON.parse(e.data);
+    const total = data.totalStreams || 0;
+    appendTestLog(total > 0 ? 'success' : 'warn', '🏁 Scrape complete — <strong>' + total + '</strong> total stream(s) from <strong>' + (data.results ? data.results.length : 0) + '</strong> provider(s)' + (data.errors && data.errors.length ? ' (' + data.errors.length + ' error(s))' : ''));
+    testEventSource.close();
+    testEventSource = null;
+    document.getElementById('testBtn').disabled = false;
+    document.getElementById('testBtn').textContent = '🧪 Test';
+  });
+
+  testEventSource.onerror = function() {
+    appendTestLog('error', '⚠️ SSE connection lost. Auto-retrying...');
+    testEventSource.close();
+    testEventSource = null;
+    document.getElementById('testBtn').disabled = false;
+    document.getElementById('testBtn').textContent = '🧪 Test';
+  };
+}
+
+function appendTestLog(type, msg) {
+  const log = document.getElementById('testLog');
+  const entry = document.createElement('div');
+  entry.className = 'test-log-entry test-log-' + type;
+  entry.innerHTML = '<span class="test-log-time">' + new Date().toLocaleTimeString() + '</span> ' + msg;
+  log.appendChild(entry);
+  log.scrollTop = log.scrollHeight;
+  testLogLines++;
+  // Cap at 500 lines
+  while (log.children.length > 500) log.removeChild(log.firstChild);
+}
+
+function clearTestLog() {
+  document.getElementById('testLog').innerHTML = '';
+  document.getElementById('testPanel').style.display = 'none';
+  testLogLines = 0;
+}
+
 window.onload = () => { loadProvidersView(); };
