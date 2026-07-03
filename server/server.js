@@ -60,16 +60,17 @@ function loadConfig() {
 }
 
 function saveConfig() {
-  // Write non-provider settings to config.json (keep it clean for git)
-  const cfgClean = { ...config };
-  delete cfgClean.providers;
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfgClean, null, 2));
-  // Persist provider config separately so git pull never overwrites user's settings
   const providersOnly = {};
   for (const [id, p] of Object.entries(config.providers || {})) {
     providersOnly[id] = { enabled: p.enabled, priority: p.priority, disabledServers: p.disabledServers || [] };
   }
   fs.writeFileSync(USER_PROVIDERS_PATH, JSON.stringify(providersOnly, null, 2));
+}
+
+function saveNonProviderSettings() {
+  const cfgClean = { ...config };
+  delete cfgClean.providers;
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfgClean, null, 2));
 }
 
 function initProviderConfig() {
@@ -387,7 +388,7 @@ app.put('/api/settings', (req, res) => {
   if (typeof autoplay === 'boolean') config.autoplay = autoplay;
   if (typeof introSkip === 'boolean') config.introSkip = introSkip;
   if (qualityFilter) config.qualityFilter = qualityFilter;
-  saveConfig();
+  saveNonProviderSettings();
   res.json(config);
 });
 
