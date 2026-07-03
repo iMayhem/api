@@ -258,7 +258,7 @@ function playStream(encodedUrl, name, quality, type) {
   renderSourceSelector();
 }
 
-const HLS_CONFIG = {
+const HLS_CONFIG = window.PLAYER_CONFIG?.hls || {
   maxBufferLength: 60,
   maxMaxBufferLength: 120,
   backBufferLength: 30,
@@ -398,7 +398,7 @@ function closeAllHlsDropdowns() {
   document.querySelectorAll('.hls-dropdown.open').forEach(function(d) { d.classList.remove('open'); });
 }
 
-const PLYR_CONFIG = {
+const PLYR_CONFIG = window.PLAYER_CONFIG?.plyr || {
   controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
   settings: ['quality', 'speed'],
   autoplay: true,

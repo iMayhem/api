@@ -5,87 +5,97 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Moovie Embed</title>
 <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.plyr.io/3.7.8/plyr.js"></script>
+<script src="/js/player-config.js"></script>
 <style>
-:root { --plyr-color-main: #ff5a1f; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; }
-#player { width: 100vw; height: 100vh; }
-#error { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #f85149; z-index: 20; font-size: 14px; background: rgba(0,0,0,0.8); padding: 16px 24px; border-radius: 8px; max-width: 80%; }
-#loading { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; background: #000; color: rgba(255,255,255,0.5); z-index: 20; font-size: 14px; transition: opacity 0.4s; }
-#loading.hidden { opacity: 0; pointer-events: none; }
-#skipMsg { position: absolute; top: 20px; right: 20px; z-index: 15; color: #ff5a1f; font-size: 13px; background: rgba(0,0,0,0.7); padding: 6px 14px; border-radius: 6px; pointer-events: none; transition: opacity 0.3s; }
-.hidden { display: none !important; }
-.plyr--video { height: 100vh; }
-.plyr__control--autoplay,
-.plyr__control--quality,
-.plyr__control--audio { font-size: 12px; font-weight: 600; letter-spacing: 0.5px; padding: 6px 10px !important; }
-.plyr__control--autoplay.plyr__control--pressed,
-.plyr__control--quality.plyr__control--pressed,
-.plyr__control--audio.plyr__control--pressed { color: var(--plyr-color-main) !important; }
-.hls-menu { position: absolute; bottom: 110%; right: 0; background: rgba(20,20,20,0.95); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 4px 0; min-width: 120px; z-index: 30; box-shadow: 0 8px 24px rgba(0,0,0,0.5); max-height: 200px; overflow-y: auto; }
-.hls-menu button { display: block; width: 100%; padding: 6px 14px; border: none; background: transparent; color: rgba(255,255,255,0.8); font-size: 12px; text-align: left; cursor: pointer; white-space: nowrap; }
-.hls-menu button:hover { background: rgba(255,255,255,0.1); color: #fff; }
-.hls-menu button.is-active { color: var(--plyr-color-main); font-weight: 700; }
+body { background: #000; color: #fff; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; }
+
+/* Status Overlay */
+#status-overlay {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: #0b0a08; padding: 1.5rem; text-align: center;
+  transition: opacity 0.5s ease;
+}
+#status-overlay.hidden { opacity: 0; pointer-events: none; }
+#status-spinner {
+  width: 44px; height: 44px;
+  border: 3px solid rgba(255, 90, 31, 0.15); border-top-color: #ff5a1f;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  margin-bottom: 1.25rem;
+}
+#status-icon { font-size: 2.5rem; margin-bottom: 1rem; display: none; }
+#status-title { font-size: 1.15rem; font-weight: 600; color: #f5efe4; margin-bottom: 0.4rem; }
+#status-subtitle { font-size: 0.9rem; color: #9ca3af; max-width: 380px; line-height: 1.5; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Plyr overrides — floating control bar */
+.plyr { width: 100% !important; height: 100% !important; background: #000 !important; }
+.plyr__video-wrapper { height: 100% !important; width: 100% !important; display: flex; align-items: center; justify-content: center; }
+.plyr video { width: 100% !important; height: 100% !important; object-fit: contain !important; }
+.plyr__controls {
+  background: rgba(11, 10, 8, 0.8) !important;
+  backdrop-filter: blur(14px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 10px !important;
+  margin: 24px !important;
+  padding: 10px 16px !important;
+  position: absolute !important;
+  bottom: 0 !important; left: 0 !important; right: 0 !important;
+  z-index: 10 !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+}
+.plyr__control { color: rgba(255, 90, 31, 0.8) !important; }
+.plyr__control:hover { background: rgba(255, 90, 31, 0.1) !important; color: #ff723f !important; }
+.plyr__progress input[type='range'] { color: #ff5a1f !important; }
+
+/* Error */
+#error-box { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #f85149; z-index: 25; font-size: 14px; background: rgba(0,0,0,0.85); padding: 20px 28px; border-radius: 10px; max-width: 80%; display: none; border: 1px solid rgba(248,81,73,0.2); }
+
+/* Skip message */
+#skipMsg { position: fixed; top: 20px; right: 20px; z-index: 15; color: #ff5a1f; font-size: 13px; background: rgba(11,10,8,0.85); backdrop-filter: blur(8px); padding: 8px 16px; border-radius: 8px; pointer-events: none; transition: opacity 0.3s; border: 1px solid rgba(255,90,31,0.15); display: none; }
+#skipMsg.show { display: block; }
+
+/* HLS menu */
+.hls-menu { position: absolute; bottom: 110%; right: 0; background: rgba(11,10,8,0.95); backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 4px 0; min-width: 130px; z-index: 30; box-shadow: 0 8px 24px rgba(0,0,0,0.5); max-height: 200px; overflow-y: auto; }
+.hls-menu button { display: block; width: 100%; padding: 7px 16px; border: none; background: transparent; color: rgba(255,255,255,0.75); font-size: 12px; text-align: left; cursor: pointer; white-space: nowrap; }
+.hls-menu button:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.hls-menu button.is-active { color: #ff5a1f; font-weight: 700; }
 </style>
 </head>
 <body>
-<div id="loading">
-  <div class="loading-anim">
-    <div class="runner">
-      <div class="runner-head"></div>
-      <div class="runner-body"></div>
-      <div class="runner-arms">
-        <div class="runner-arm runner-arm-l"></div>
-        <div class="runner-arm runner-arm-r"></div>
-      </div>
-      <div class="runner-legs">
-        <div class="runner-leg runner-leg-l"></div>
-        <div class="runner-leg runner-leg-r"></div>
-      </div>
-      <div class="runner-shadow"></div>
-    </div>
-    <div class="loading-text-wrap">
-      <div class="loading-text-inner">
-        <span id="loadingText">Loading player...</span>
-        <span>Finding streams...</span>
-        <span>Almost there...</span>
-        <span>Starting playback...</span>
-      </div>
-    </div>
-    <div class="loading-track">
-      <div class="loading-dot"></div>
-      <div class="loading-dot"></div>
-      <div class="loading-dot"></div>
-    </div>
-  </div>
-</div>
-<div id="error" class="hidden"></div>
-<div id="skipMsg" class="hidden"></div>
-<div id="player"></div>
 
-<script src="https://cdn.plyr.io/3.7.8/plyr.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<div id="status-overlay">
+  <div id="status-spinner"></div>
+  <div id="status-icon">🚨</div>
+  <h2 id="status-title">Finding streams...</h2>
+  <p id="status-subtitle">Searching available sources for this title</p>
+</div>
+
+<div id="error-box"></div>
+<div id="skipMsg"></div>
+<div id="player-container"></div>
+
 <script>
 (function() {
-  // ── Analytics ────────────────────────────────────────────────────────
+  var cfg = window.PLAYER_CONFIG || { plyr: { controls: ['play-large','play','progress','current-time','duration','mute','volume','settings','fullscreen'], settings: ['quality','speed'], autoplay: true }, hls: { maxMaxBufferLength: 120, enableWorker: true } };
+
   var anSid = localStorage.getItem('an_sid');
   if (!anSid) { anSid = Date.now().toString(36) + Math.random().toString(36).slice(2, 10); localStorage.setItem('an_sid', anSid); }
   function anTrack(type, data) {
-    try {
-      var x = new XMLHttpRequest();
-      x.open('POST', '/api/analytics/event', true);
-      x.setRequestHeader('Content-Type', 'application/json');
-      x.send(JSON.stringify({ type: type, sessionId: anSid, data: data || {} }));
-    } catch(e) {}
+    try { var x = new XMLHttpRequest(); x.open('POST', '/api/analytics/event', true); x.setRequestHeader('Content-Type', 'application/json'); x.send(JSON.stringify({ type: type, sessionId: anSid, data: data || {} })); } catch(e) {}
   }
   var anHeartbeatTimer = null;
-  function anStartHeartbeat(extra) {
-    if (anHeartbeatTimer) clearInterval(anHeartbeatTimer);
-    anHeartbeatTimer = setInterval(function() { anTrack('heartbeat', extra || {}); }, 30000);
-  }
+  function anStartHeartbeat(extra) { if (anHeartbeatTimer) clearInterval(anHeartbeatTimer); anHeartbeatTimer = setInterval(function() { anTrack('heartbeat', extra || {}); }, 30000); }
   function anStopHeartbeat() { if (anHeartbeatTimer) { clearInterval(anHeartbeatTimer); anHeartbeatTimer = null; } }
+
   var params = new URLSearchParams(location.search);
   anTrack('pageview', { url: location.href, tmdb: params.get('tmdb') || '' });
+
   var tmdb = params.get('tmdb');
   var mediaType = params.get('type') || 'movie';
   var season = params.get('season') || '';
@@ -96,26 +106,23 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   var hasExplicitSkip = params.has('skipintro');
   if (hasExplicitSkip) introSkip = params.get('skipintro') !== '0';
 
-  // Parse path-based URLs
   if (!tmdb) {
     var m = location.pathname.match(/\/embed\/(movie|tv)\/(\d+)(?:\/(\d+)\/(\d+))?/);
-    if (m) {
-      mediaType = m[1];
-      tmdb = m[2];
-      season = m[3] || '';
-      episode = m[4] || '';
-    }
+    if (m) { mediaType = m[1]; tmdb = m[2]; season = m[3] || ''; episode = m[4] || ''; }
   }
 
-  // Fetch global settings
-  fetch('/api/settings').then(function(r) { return r.json(); }).then(function(cfg) {
-    if (!hasExplicitAutoplay && cfg.autoplay === false) { autoplay = false; updateAutoBtn(); }
-    if (!hasExplicitSkip && cfg.introSkip !== true) introSkip = false;
+  fetch('/api/settings').then(function(r) { return r.json(); }).then(function(s) {
+    if (!hasExplicitAutoplay && s.autoplay === false) autoplay = false;
+    if (!hasExplicitSkip && s.introSkip !== true) introSkip = false;
   }).catch(function() {});
 
-  var container = document.getElementById('player');
-  var loadingEl = document.getElementById('loading');
-  var errorEl = document.getElementById('error');
+  var container = document.getElementById('player-container');
+  var overlay = document.getElementById('status-overlay');
+  var spinner = document.getElementById('status-spinner');
+  var statusIcon = document.getElementById('status-icon');
+  var statusTitle = document.getElementById('status-title');
+  var statusSubtitle = document.getElementById('status-subtitle');
+  var errorBox = document.getElementById('error-box');
   var skipMsgEl = document.getElementById('skipMsg');
   var videoEl = null;
   var plyr = null;
@@ -133,20 +140,35 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
   var segments = null;
   var skipActive = false;
 
-  function closeMenu() {
-    if (menuEl) { menuEl.remove(); menuEl = null; }
+  function setStatus(title, subtitle, showSpinner) {
+    statusTitle.textContent = title;
+    statusSubtitle.textContent = subtitle || '';
+    spinner.style.display = showSpinner !== false ? '' : 'none';
+    statusIcon.style.display = 'none';
+    overlay.classList.remove('hidden');
   }
 
-  function updateAutoBtn() {
-    if (!autoBtn) return;
-    autoBtn.classList.toggle('plyr__control--pressed', autoplay);
+  function showError(msg) {
+    spinner.style.display = 'none';
+    statusIcon.style.display = 'block';
+    statusTitle.textContent = 'Unable to load stream';
+    statusSubtitle.textContent = msg;
+    errorBox.textContent = msg;
+    errorBox.style.display = 'block';
   }
+
+  function hideOverlay() {
+    overlay.classList.add('hidden');
+    errorBox.style.display = 'none';
+  }
+
+  function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
 
   function showSkipMsg(text) {
     skipMsgEl.textContent = text;
-    skipMsgEl.classList.remove('hidden');
+    skipMsgEl.classList.add('show');
     clearTimeout(skipMsgEl._timer);
-    skipMsgEl._timer = setTimeout(function() { skipMsgEl.classList.add('hidden'); }, 3000);
+    skipMsgEl._timer = setTimeout(function() { skipMsgEl.classList.remove('show'); }, 3000);
   }
 
   function fetchTimestamps() {
@@ -154,100 +176,83 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     var url = '/api/intro-timestamps?tmdb_id=' + encodeURIComponent(tmdb) + '&type=' + encodeURIComponent(mediaType);
     if (season) url += '&season=' + encodeURIComponent(season);
     if (episode) url += '&episode=' + encodeURIComponent(episode);
-    fetch(url).then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
-      segments = d;
-    }).catch(function() {});
+    fetch(url).then(function(r) { return r.ok ? r.json() : null; }).then(function(d) { segments = d; }).catch(function() {});
   }
 
   function checkSkip() {
     if (!segments || !videoEl || skipActive) return;
     var t = videoEl.currentTime * 1000;
     var dur = (videoEl.duration || 0) * 1000;
-
-    // Skip intro: jump to end_ms if within intro range
     if (segments.intro && segments.intro.length) {
       var intro = segments.intro[0];
-      var start = intro.start_ms || 0;
       var end = intro.end_ms;
-      if (end && t >= start && t < end && end < dur - 5000) {
-        skipActive = true;
-        showSkipMsg('⏭ Skipping intro');
-        videoEl.currentTime = end / 1000;
-        setTimeout(function() { skipActive = false; }, 500);
-        return;
+      if (end && t >= (intro.start_ms || 0) && t < end && end < dur - 5000) {
+        skipActive = true; showSkipMsg('⏭ Skipping intro'); videoEl.currentTime = end / 1000;
+        setTimeout(function() { skipActive = false; }, 500); return;
       }
     }
-
-    // Skip recap
     if (segments.recap && segments.recap.length) {
       var recap = segments.recap[0];
-      var rStart = recap.start_ms || 0;
       var rEnd = recap.end_ms;
-      if (rEnd && t >= rStart && t < rEnd && rEnd < dur - 5000) {
-        skipActive = true;
-        showSkipMsg('⏭ Skipping recap');
-        videoEl.currentTime = rEnd / 1000;
-        setTimeout(function() { skipActive = false; }, 500);
-        return;
+      if (rEnd && t >= (recap.start_ms || 0) && t < rEnd && rEnd < dur - 5000) {
+        skipActive = true; showSkipMsg('⏭ Skipping recap'); videoEl.currentTime = rEnd / 1000;
+        setTimeout(function() { skipActive = false; }, 500); return;
       }
     }
-
-    // Skip credits
     if (segments.credits && segments.credits.length) {
       var cred = segments.credits[0];
       if (cred.start_ms && t >= cred.start_ms && (!cred.end_ms || t < cred.end_ms)) {
-        skipActive = true;
-        var target = cred.end_ms ? cred.end_ms / 1000 : videoEl.duration;
-        showSkipMsg('⏭ Skipping credits');
-        videoEl.currentTime = target;
-        setTimeout(function() { skipActive = false; }, 500);
-        return;
+        skipActive = true; showSkipMsg('⏭ Skipping credits');
+        videoEl.currentTime = cred.end_ms ? cred.end_ms / 1000 : videoEl.duration;
+        setTimeout(function() { skipActive = false; }, 500); return;
       }
     }
-
-    // Skip preview
     if (segments.preview && segments.preview.length) {
       var prev = segments.preview[0];
       if (prev.start_ms && t >= prev.start_ms && (!prev.end_ms || t < prev.end_ms)) {
-        skipActive = true;
-        var pTarget = prev.end_ms ? prev.end_ms / 1000 : videoEl.duration;
-        showSkipMsg('⏭ Skipping preview');
-        videoEl.currentTime = pTarget;
+        skipActive = true; showSkipMsg('⏭ Skipping preview');
+        videoEl.currentTime = prev.end_ms ? prev.end_ms / 1000 : videoEl.duration;
         setTimeout(function() { skipActive = false; }, 500);
       }
     }
   }
 
-  const HLS_CONFIG = {
-    maxBufferLength: 60,
-    maxMaxBufferLength: 120,
-    backBufferLength: 30,
-    startLevel: -1,
-    abrEwmaDefaultEstimate: 5e6,
-    enableWorker: true,
-    lowLatencyMode: false,
-  };
-
-  function createVideo() {
-    container.innerHTML = '<video id="video" playsinline preload="auto"' + (autoplay ? ' autoplay' : '') + ' crossorigin></video>';
-    videoEl = document.getElementById('video');
-    videoEl.addEventListener('error', function() { tryNext(); });
-    videoEl.addEventListener('timeupdate', checkSkip);
-    videoEl.addEventListener('canplay', function() { loadingEl.classList.add('hidden'); });
-    videoEl.addEventListener('play', function() {
-      anTrack('play', { url: videoEl.src, tmdb: tmdb, mediaType: mediaType });
-      anStartHeartbeat({ currentUrl: location.href });
-    });
-    initPlyr();
+  function createPlyr() {
+    if (plyr) plyr.destroy();
+    plyr = new Plyr(videoEl, cfg.plyr);
+    plyr.on('controlsshow', injectAutoBtn);
   }
 
-  function initPlyr() {
-    if (plyr) plyr.destroy();
-    plyr = new Plyr(videoEl, {
-      controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
-      settings: ['quality', 'speed'],
-    });
-    plyr.on('controlsshow', injectAutoBtn);
+  function injectAutoBtn() {
+    if (autoBtn && autoBtn.parentNode) return;
+    if (!plyr || !plyr.elements.controls) return;
+    autoBtn = document.createElement('button');
+    autoBtn.className = 'plyr__controls__item plyr__control plyr__control--autoplay' + (autoplay ? ' plyr__control--pressed' : '');
+    autoBtn.innerHTML = 'Auto';
+    autoBtn.addEventListener('click', function(e) { e.preventDefault(); autoplay = !autoplay; autoBtn.classList.toggle('plyr__control--pressed', autoplay); });
+    var ref = plyr.elements.controls.querySelector('[data-plyr="fullscreen"]');
+    if (ref) ref.parentNode.insertBefore(autoBtn, ref);
+    injectHlsControls();
+  }
+
+  function injectHlsControls() {
+    if (!plyr || !plyr.elements.controls) return;
+    var ref = plyr.elements.controls.querySelector('[data-plyr="fullscreen"]') || plyr.elements.controls.lastElementChild;
+    if (!ref) return;
+    if (hlsLevels.length > 0 && !qualityBtn) {
+      qualityBtn = document.createElement('button');
+      qualityBtn.className = 'plyr__controls__item plyr__control plyr__control--quality';
+      qualityBtn.innerHTML = 'Auto';
+      qualityBtn.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); showQualityMenu(); });
+      ref.parentNode.insertBefore(qualityBtn, ref);
+    }
+    if (hlsAudioTracks.length > 1 && !audioBtn) {
+      audioBtn = document.createElement('button');
+      audioBtn.className = 'plyr__controls__item plyr__control plyr__control--audio plyr__control--pressed';
+      audioBtn.innerHTML = hlsAudioTracks[0] ? hlsAudioTracks[0].name || 'Audio' : 'Audio';
+      audioBtn.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); showAudioMenu(); });
+      ref.parentNode.insertBefore(audioBtn, ref);
+    }
   }
 
   function createHlsMenu(items, current, onSelect) {
@@ -255,13 +260,13 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     menuEl = document.createElement('div');
     menuEl.className = 'hls-menu';
     for (var i = 0; i < items.length; i++) {
-      var btn = document.createElement('button');
-      btn.textContent = items[i].label;
-      if (items[i].value === current) btn.classList.add('is-active');
-      btn.addEventListener('click', function(val) {
-        return function() { closeMenu(); onSelect(val); };
-      }(items[i].value));
-      menuEl.appendChild(btn);
+      (function(val, label) {
+        var btn = document.createElement('button');
+        btn.textContent = label;
+        if (val === current) btn.classList.add('is-active');
+        btn.addEventListener('click', function() { closeMenu(); onSelect(val); });
+        menuEl.appendChild(btn);
+      })(items[i].value, items[i].label);
     }
     var ref = qualityBtn || audioBtn || autoBtn;
     if (ref && ref.parentNode) ref.parentNode.appendChild(menuEl);
@@ -271,57 +276,27 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     if (!hlsLevels.length) return;
     var items = [{ label: 'Auto', value: -1 }];
     for (var i = 0; i < hlsLevels.length; i++) {
-      var h = hlsLevels[i];
-      items.push({ label: (h.height || '?') + 'p' + (h.bitrate ? ' (' + Math.round(h.bitrate/1000) + 'kbps)' : ''), value: i });
+      items.push({ label: (hlsLevels[i].height || '?') + 'p', value: i });
     }
     createHlsMenu(items, currentHlsLevel, function(val) {
-      var from = currentHlsLevel;
       currentHlsLevel = val;
       if (hlsInstance) hlsInstance.currentLevel = val;
       if (qualityBtn) qualityBtn.innerHTML = val === -1 ? 'Auto' : (hlsLevels[val] ? hlsLevels[val].height + 'p' : 'Quality');
       qualityBtn.classList.toggle('plyr__control--pressed', val !== -1);
-      anTrack('quality_change', { from: from, to: val, label: val === -1 ? 'auto' : (hlsLevels[val] ? hlsLevels[val].height + 'p' : '?') });
+      anTrack('quality_change', { from: currentHlsLevel, to: val });
     });
   }
 
   function showAudioMenu() {
     if (!hlsAudioTracks.length) return;
-    var items = hlsAudioTracks.map(function(t, i) {
-      return { label: t.name || 'Track ' + (i + 1), value: i };
-    });
+    var items = hlsAudioTracks.map(function(t, i) { return { label: t.name || 'Track ' + (i + 1), value: i }; });
     createHlsMenu(items, currentHlsAudio, function(val) {
-      var from = currentHlsAudio;
       currentHlsAudio = val;
       if (hlsInstance) hlsInstance.audioTrack = val;
       if (audioBtn) audioBtn.innerHTML = hlsAudioTracks[val] ? hlsAudioTracks[val].name || 'Audio' : 'Audio';
       audioBtn.classList.add('plyr__control--pressed');
-      anTrack('audio_change', { from: from, to: val, label: hlsAudioTracks[val] ? hlsAudioTracks[val].name : '?' });
+      anTrack('audio_change', { from: currentHlsAudio, to: val });
     });
-  }
-
-  function injectHlsControls() {
-    if (!plyr || !plyr.elements.controls) return;
-    var fsBtn = plyr.elements.controls.querySelector('[data-plyr="fullscreen"]');
-    var ref = fsBtn || plyr.elements.controls.lastElementChild;
-    if (!ref) return;
-
-    if (hlsLevels.length > 0 && !qualityBtn) {
-      qualityBtn = document.createElement('button');
-      qualityBtn.className = 'plyr__controls__item plyr__control plyr__control--quality';
-      qualityBtn.innerHTML = 'Auto';
-      qualityBtn.setAttribute('aria-label', 'Quality');
-      qualityBtn.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); showQualityMenu(); });
-      ref.parentNode.insertBefore(qualityBtn, ref);
-    }
-
-    if (hlsAudioTracks.length > 1 && !audioBtn) {
-      audioBtn = document.createElement('button');
-      audioBtn.className = 'plyr__controls__item plyr__control plyr__control--audio plyr__control--pressed';
-      audioBtn.innerHTML = hlsAudioTracks[0] ? hlsAudioTracks[0].name || 'Audio' : 'Audio';
-      audioBtn.setAttribute('aria-label', 'Audio');
-      audioBtn.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); showAudioMenu(); });
-      ref.parentNode.insertBefore(audioBtn, ref);
-    }
   }
 
   function setupHlsQualityAudio() {
@@ -333,60 +308,51 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     injectHlsControls();
   }
 
-  function injectAutoBtn() {
-    if (autoBtn && autoBtn.parentNode) return;
-    if (!plyr.elements.controls) return;
-    autoBtn = document.createElement('button');
-    autoBtn.className = 'plyr__controls__item plyr__control plyr__control--autoplay';
-    if (autoplay) autoBtn.classList.add('plyr__control--pressed');
-    autoBtn.innerHTML = 'Auto';
-    autoBtn.setAttribute('aria-label', 'Toggle autoplay');
-    autoBtn.setAttribute('data-plyr', 'autoplay');
-    autoBtn.addEventListener('click', function(e) {
-      e.preventDefault();
-      autoplay = !autoplay;
-      updateAutoBtn();
-    });
-    var fsBtn = plyr.elements.controls.querySelector('[data-plyr="fullscreen"]');
-    if (fsBtn) fsBtn.parentNode.insertBefore(autoBtn, fsBtn);
-    injectHlsControls();
-  }
-
   function destroyPlayer() {
     if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
     if (plyr) { plyr.destroy(); plyr = null; }
+    if (videoEl) { videoEl.remove(); videoEl = null; }
   }
 
   function playUrl(url, type) {
     destroyPlayer();
-    loadingEl.classList.remove('hidden');
-    errorEl.classList.add('hidden');
-    createVideo();
+    overlay.classList.remove('hidden');
+    spinner.style.display = '';
+    statusIcon.style.display = 'none';
+    errorBox.style.display = 'none';
+    setStatus('Starting playback...', 'Buffering stream content');
+
+    videoEl = document.createElement('video');
+    videoEl.playsInline = true;
+    videoEl.preload = 'auto';
+    if (autoplay) videoEl.autoplay = true;
+    videoEl.crossOrigin = '';
+    videoEl.addEventListener('error', function() { tryNext(); });
+    videoEl.addEventListener('timeupdate', checkSkip);
+    videoEl.addEventListener('canplay', hideOverlay);
+    videoEl.addEventListener('play', function() {
+      anTrack('play', { url: url, tmdb: tmdb, mediaType: mediaType });
+      anStartHeartbeat({ currentUrl: location.href });
+    });
+    container.appendChild(videoEl);
+    createPlyr();
     fetchTimestamps();
-    document.getElementById('loadingText').textContent = 'Buffering...';
+
     var isHls = type === 'm3u8' || (!type && (url.includes('/proxy') || url.includes('.m3u8')));
     if (isHls && Hls.isSupported()) {
-      hlsInstance = new Hls(HLS_CONFIG);
+      hlsInstance = new Hls(cfg.hls);
       hlsInstance.loadSource(url);
       hlsInstance.attachMedia(videoEl);
       hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() { setupHlsQualityAudio(); });
       hlsInstance.on(Hls.Events.ERROR, function(e, data) {
-        if (data.fatal) {
-          hlsInstance.destroy();
-          hlsInstance = null;
-          videoEl.src = url;
-        }
+        if (data.fatal) { hlsInstance.destroy(); hlsInstance = null; videoEl.src = url; }
       });
     } else if (isHls && videoEl.canPlayType('application/vnd.apple.mpegurl')) {
       videoEl.src = url;
     } else {
       videoEl.src = url;
     }
-    if (autoplay) {
-      videoEl.play().catch(function() {});
-      anTrack('play', { url: url, type: type, tmdb: tmdb, mediaType: mediaType });
-      anStartHeartbeat({ currentUrl: location.href });
-    }
+    if (autoplay) { videoEl.play().catch(function() {}); anTrack('play', { url: url, type: type, tmdb: tmdb }); anStartHeartbeat({ currentUrl: location.href }); }
     preloadRemainingStreams(currentIdx);
   }
 
@@ -406,20 +372,9 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     }
   }
 
-  function showError(msg) {
-    destroyPlayer();
-    anStopHeartbeat();
-    anTrack('error', { message: msg, tmdb: tmdb });
-    loadingEl.classList.add('hidden');
-    errorEl.textContent = msg;
-    errorEl.classList.remove('hidden');
-  }
-
-  // ── Main ──────────────────────────────────────────────────────────
-
-  // TMDB mode
+  // ── Main ──
   if (tmdb) {
-    document.getElementById('loadingText').textContent = 'Finding streams...';
+    setStatus('Finding streams...', 'Searching available sources for this title');
     var typesToTry = [];
     if (params.get('type')) {
       typesToTry.push({ type: mediaType, season: season, episode: episode });
@@ -431,7 +386,7 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     function tryType(idx) {
       if (idx >= typesToTry.length) {
         if (streams.length === 0) showError('No streams found.');
-        else { document.getElementById('loadingText').textContent = 'Starting playback...'; playUrl(streams[0].url, streams[0].type); }
+        else { setStatus('Starting playback...', 'Loading selected stream'); playUrl(streams[0].url, streams[0].type); }
         return;
       }
       var t = typesToTry[idx];
@@ -464,35 +419,37 @@ body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystem
     showError('Pass ?tmdb=ID or use /embed/movie/ID or /embed/tv/ID/season/episode.');
     return;
   }
-
   var proxyUrl = id ? '/proxy?id=' + encodeURIComponent(id) : '/proxy?u=' + encodeURIComponent(u) + (h ? '&h=' + encodeURIComponent(h) : '');
   var embedType = params.get('type') || '';
-  loadingEl.classList.add('hidden');
+  setStatus('Starting playback...', 'Loading stream');
   createVideo();
-  var isHls = embedType === 'm3u8' || (!embedType && (proxyUrl.includes('/proxy') || proxyUrl.includes('.m3u8')));
 
-  if (isHls && Hls.isSupported()) {
-    hlsInstance = new Hls(HLS_CONFIG);
-    hlsInstance.loadSource(proxyUrl);
-    hlsInstance.attachMedia(videoEl);
-    hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() { setupHlsQualityAudio(); });
-  } else if (isHls && videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-    videoEl.src = proxyUrl;
-  } else {
-    videoEl.src = proxyUrl;
+  // Legacy helpers
+  function createVideo() {
+    videoEl = document.createElement('video');
+    videoEl.playsInline = true;
+    videoEl.preload = 'auto';
+    if (autoplay) videoEl.autoplay = true;
+    videoEl.crossOrigin = '';
+    container.appendChild(videoEl);
+    createPlyr();
+    var isHls = embedType === 'm3u8' || (!embedType && (proxyUrl.includes('/proxy') || proxyUrl.includes('.m3u8')));
+    if (isHls && Hls.isSupported()) {
+      hlsInstance = new Hls(cfg.hls);
+      hlsInstance.loadSource(proxyUrl);
+      hlsInstance.attachMedia(videoEl);
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() { setupHlsQualityAudio(); });
+    } else if (isHls && videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+      videoEl.src = proxyUrl;
+    } else {
+      videoEl.src = proxyUrl;
+    }
+    if (autoplay) { videoEl.play().catch(function() {}); }
+    videoEl.addEventListener('play', function() { anTrack('play', { url: proxyUrl, tmdb: tmdb, legacy: true }); anStartHeartbeat({ currentUrl: location.href }); });
+    videoEl.addEventListener('canplay', hideOverlay);
+    videoEl.addEventListener('error', function() { showError('Failed to load video.'); });
   }
 
-  if (autoplay) {
-    videoEl.play().catch(function() {});
-    anTrack('play', { url: proxyUrl, tmdb: tmdb, mediaType: mediaType, legacy: true });
-    anStartHeartbeat({ currentUrl: location.href });
-  }
-  videoEl.addEventListener('play', function() {
-    anTrack('play', { url: videoEl.src, tmdb: tmdb, mediaType: mediaType, legacy: true });
-    anStartHeartbeat({ currentUrl: location.href });
-  });
-  videoEl.addEventListener('canplay', function() { loadingEl.classList.add('hidden'); });
-  videoEl.addEventListener('error', function() { showError('Failed to load video.'); });
   document.addEventListener('click', function(e) { if (menuEl && !menuEl.contains(e.target)) closeMenu(); });
 })();
 </script>
