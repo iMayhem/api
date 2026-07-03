@@ -619,15 +619,22 @@ async function discoverServers(providerId, btn) {
   setTimeout(() => { btn.disabled = false; if (btn.textContent !== '✅ ...') btn.textContent = '🔍 Discover Servers'; }, 3000);
 }
 
+async function reorderProviders(order) {
+  await api('/api/providers/reorder', { method: 'POST', body: JSON.stringify({ order }) });
+  loadProvidersView();
+}
+
 async function movePriority(id, dir) {
   const p = providers[id];
   if (!p) return;
-  const newP = p.priority + dir;
-  const other = Object.entries(providers).find(([, v]) => v.priority === newP);
-  if (!other) return;
-  await api(`/api/providers/${id}/priority`, { method: 'POST', body: JSON.stringify({ priority: newP }) });
-  await api(`/api/providers/${other[0]}/priority`, { method: 'POST', body: JSON.stringify({ priority: p.priority }) });
-  loadProvidersView();
+  const entries = Object.entries(providers).sort((a, b) => a[1].priority - b[1].priority);
+  const idx = entries.findIndex(([eid]) => eid === id);
+  const swapIdx = idx + dir;
+  if (swapIdx < 0 || swapIdx >= entries.length) return;
+  // Swap positions in the order array
+  const order = entries.map(([eid]) => eid);
+  [order[idx], order[swapIdx]] = [order[swapIdx], order[idx]];
+  await reorderProviders(order);
 }
 
 function toggleMovePopup(id, btn) {
@@ -640,17 +647,14 @@ function toggleMovePopup(id, btn) {
 async function quickMoveProvider(id, targetPriority) {
   const p = providers[id];
   if (!p || p.priority === targetPriority) return;
-  // Shift all providers between current and target
-  const dir = targetPriority > p.priority ? 1 : -1;
-  const entries = Object.entries(providers);
-  for (let pri = p.priority + dir; dir === 1 ? pri <= targetPriority : pri >= targetPriority; pri += dir) {
-    const other = entries.find(([, v]) => v.priority === pri);
-    if (other) {
-      await api(`/api/providers/${other[0]}/priority`, { method: 'POST', body: JSON.stringify({ priority: pri - dir }) });
-    }
-  }
-  await api(`/api/providers/${id}/priority`, { method: 'POST', body: JSON.stringify({ priority: targetPriority }) });
-  loadProvidersView();
+  const entries = Object.entries(providers).sort((a, b) => a[1].priority - b[1].priority);
+  const fromIdx = entries.findIndex(([eid]) => eid === id);
+  const toIdx = targetPriority - 1; // priorities are 1-based
+  if (toIdx < 0 || toIdx >= entries.length) return;
+  const order = entries.map(([eid]) => eid);
+  order.splice(fromIdx, 1);
+  order.splice(toIdx, 0, id);
+  await reorderProviders(order);
 }
 
 function closeAllMovePopups() {

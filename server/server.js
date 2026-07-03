@@ -165,6 +165,19 @@ app.get('/api/providers', (req, res) => {
   res.json(result);
 });
 
+// Bulk reorder providers — atomic, single request
+app.post('/api/providers/reorder', (req, res) => {
+  const { order } = req.body;
+  if (!Array.isArray(order) || !order.length) return res.status(400).json({ error: 'Missing order array' });
+  for (let i = 0; i < order.length; i++) {
+    if (config.providers[order[i]]) {
+      config.providers[order[i]].priority = i + 1;
+    }
+  }
+  saveConfig();
+  res.json({ ok: true });
+});
+
 // Toggle provider
 app.post('/api/providers/:id/toggle', (req, res) => {
   const { id } = req.params;
