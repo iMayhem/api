@@ -39,11 +39,13 @@ function switchView(name) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('view-' + name).classList.add('active');
   document.querySelector(`.nav-btn[data-view="${name}"]`).classList.add('active');
+  localStorage.setItem('activeView', name);
   if (name === 'providers') loadProvidersView();
   if (name === 'settings') loadSettings();
   if (name === 'filters') loadFilters();
   if (name === 'analytics') loadAnalytics();
   if (name === 'info') loadInfo();
+  if (name === 'player') initPlyr();
 }
 
 async function doSearch() {
@@ -84,10 +86,11 @@ async function doSearch() {
       return;
     }
 
-    let html = '';
+    let html = '<div id="providerIndex" class="provider-index"></div>';
     for (const group of data.results) {
+      const id = 'pg-' + (group.provider || Math.random().toString(36).slice(2, 8));
       html += `
-        <div class="provider-group">
+        <div class="provider-group" id="${id}">
           <div class="provider-group-header" onclick="this.nextElementSibling.classList.toggle('hidden')">
             <div>
               <h3>${group.providerName}</h3>
@@ -120,10 +123,47 @@ async function doSearch() {
         </div>`;
     }
     container.innerHTML = html;
+    renderProviderIndex(data.results);
     applyQualityFilter();
   } catch (e) {
     container.innerHTML = `<div class="error-box">Error: ${e.message}</div>`;
     status.textContent = 'Search failed';
+  }
+}
+
+function renderProviderIndex(results) {
+  const el = document.getElementById('providerIndex');
+  if (!el || results.length < 2) { if (el) el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.innerHTML = results.map(function(g) {
+    const id = 'pg-' + (g.provider || '');
+    return '<button onclick="scrollToAndHighlight(\'' + id + '\');this.blur()">' + (g.providerName || g.provider) + '</button>';
+  }).join('');
+}
+
+function scrollToAndHighlight(elId) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  el.classList.remove('highlight-flash');
+  // Force reflow so the animation restarts
+  void el.offsetWidth;
+  el.classList.add('highlight-flash');
+  setTimeout(function() { el.classList.remove('highlight-flash'); }, 2000);
+}
+
+function applyIndexOpacity(val) {
+  document.documentElement.style.setProperty('--index-opacity', val);
+  document.getElementById('indexOpacityVal').textContent = Math.round(parseFloat(val) * 100) + '%';
+  localStorage.setItem('indexOpacity', val);
+}
+
+function loadIndexOpacity() {
+  const saved = localStorage.getItem('indexOpacity');
+  if (saved) {
+    document.documentElement.style.setProperty('--index-opacity', saved);
+    const slider = document.getElementById('setIndexOpacity');
+    if (slider) { slider.value = saved; document.getElementById('indexOpacityVal').textContent = Math.round(parseFloat(saved) * 100) + '%'; }
   }
 }
 
@@ -358,30 +398,27 @@ function closeAllHlsDropdowns() {
   document.querySelectorAll('.hls-dropdown.open').forEach(function(d) { d.classList.remove('open'); });
 }
 
-function showLoader(text) {
-  const loader = document.getElementById('playerLoader');
-  if (!loader) return;
-  loader.querySelector('.player-loader-text').textContent = text || 'Loading stream...';
-  loader.style.display = 'flex';
+function markStreamLoaded() {
+  document.getElementById('playerContainer').classList.add('stream-loaded');
 }
 
-function hideLoader() {
-  const loader = document.getElementById('playerLoader');
-  if (loader) loader.style.display = 'none';
+const PLYR_CONFIG = {
+  controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
+  settings: ['quality', 'speed'],
+};
+
+function initPlyr() {
+  const video = document.getElementById('plyrVideo');
+  if (!video || player) return;
+  player = new Plyr(video, PLYR_CONFIG);
 }
 
 function loadPlayer(url, title, type) {
   const video = document.getElementById('plyrVideo');
 
-  showLoader('Loading ' + (title || 'stream') + '...');
-
   if (hlsInstance) {
     hlsInstance.destroy();
     hlsInstance = null;
-  }
-  if (player) {
-    player.destroy();
-    player = null;
   }
 
   hlsLevels = [];
@@ -390,19 +427,20 @@ function loadPlayer(url, title, type) {
   currentHlsAudio = -1;
 
   const mimeType = detectType(url, type);
-  video.removeAttribute('src');
-  video.innerHTML = '';
-  video.load();
 
-  function onCanPlay() {
-    hideLoader();
-    video.removeEventListener('canplay', onCanPlay);
-    video.removeEventListener('playing', onCanPlay);
+  function onReady() {
+    markStreamLoaded();
+    video.removeEventListener('canplay', onReady);
+    video.removeEventListener('playing', onReady);
   }
-  video.addEventListener('canplay', onCanPlay);
-  video.addEventListener('playing', onCanPlay);
+  video.addEventListener('canplay', onReady);
+  video.addEventListener('playing', onReady);
 
   if (mimeType === 'application/x-mpegURL' && Hls.isSupported()) {
+    if (player) { player.destroy(); player = null; }
+    video.removeAttribute('src');
+    video.innerHTML = '';
+    video.load();
     hlsInstance = new Hls(HLS_CONFIG);
     hlsInstance.loadSource(url);
     hlsInstance.attachMedia(video);
@@ -412,23 +450,19 @@ function loadPlayer(url, title, type) {
       currentHlsLevel = hlsInstance.currentLevel;
       currentHlsAudio = hlsInstance.audioTrack;
       renderHlsControls();
-      player = new Plyr(video, {
-        controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
-        settings: ['quality', 'speed'],
-      });
+      player = new Plyr(video, PLYR_CONFIG);
     });
     hlsInstance.on(Hls.Events.ERROR, (e, data) => {
-      if (data.fatal) { anTrack('error', { message: data.type + ': ' + data.details, url }); hideLoader(); }
+      if (data.fatal) { anTrack('error', { message: data.type + ': ' + data.details, url }); markStreamLoaded(); }
     });
-    hlsInstance.on(Hls.Events.LEVEL_LOADED, () => hideLoader());
+    hlsInstance.on(Hls.Events.LEVEL_LOADED, () => markStreamLoaded());
   } else {
-    video.onerror = function() { hideLoader(); };
+    video.onerror = function() { markStreamLoaded(); };
     video.src = url;
     video.load();
-    player = new Plyr(video, {
-      controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
-      settings: ['quality', 'speed'],
-    });
+    if (!player) {
+      player = new Plyr(video, PLYR_CONFIG);
+    }
   }
 
   preloadRemaining(url);
@@ -451,6 +485,20 @@ async function pingStream(url, timeoutMs) {
   }
 }
 
+let lastPingResults = [];
+
+function renderPingResults() {
+  const panel = document.getElementById('pingPanel');
+  const list = document.getElementById('pingList');
+  if (!panel || !list || lastPingResults.length === 0) return;
+  panel.style.display = 'flex';
+  list.innerHTML = lastPingResults.map(function(r) {
+    const timeClass = r.alive ? (r.time < 500 ? 'fast' : r.time < 3000 ? 'slow' : 'slow') : 'dead';
+    const timeText = r.alive ? Math.round(r.time) + 'ms' : '✕';
+    return '<div class="ping-item"><span class="ping-provider">' + (r.provider || '?') + '</span><span class="ping-quality">' + (r.quality || 'Auto') + '</span><span class="ping-time ' + timeClass + '">' + timeText + '</span></div>';
+  }).join('');
+}
+
 async function selectFastestStream() {
   if (allStreams.length === 0) return null;
   const tests = allStreams.map(function(s) {
@@ -458,6 +506,12 @@ async function selectFastestStream() {
   });
   appendTestLog('info', '⏱️ Ping-testing <strong>' + allStreams.length + '</strong> stream(s) to find the fastest...');
   const results = await Promise.all(tests);
+  // Store ping results with provider/quality info for display
+  lastPingResults = results.map(function(r) {
+    const s = allStreams.find(function(st) { return (st.proxyUrl || st.url) === r.url; });
+    return { url: r.url, time: r.time, alive: r.alive, provider: s ? s._providerName : '?', quality: s ? s.quality || 'Auto' : '?' };
+  });
+  renderPingResults();
   const alive = results.filter(function(r) { return r.alive; }).sort(function(a, b) { return a.time - b.time; });
   if (alive.length === 0) {
     appendTestLog('warn', '⚠️ No responsive streams found — falling back to first result');
@@ -576,12 +630,48 @@ async function movePriority(id, dir) {
   loadProvidersView();
 }
 
+function toggleMovePopup(id, btn) {
+  // Close any other open popups
+  document.querySelectorAll('.move-popup.open').forEach(function(p) { p.classList.remove('open'); });
+  const popup = btn.parentElement.querySelector('.move-popup');
+  if (popup) popup.classList.toggle('open');
+}
+
+async function quickMoveProvider(id, targetPriority) {
+  const p = providers[id];
+  if (!p || p.priority === targetPriority) return;
+  // Shift all providers between current and target
+  const dir = targetPriority > p.priority ? 1 : -1;
+  const entries = Object.entries(providers);
+  for (let pri = p.priority + dir; dir === 1 ? pri <= targetPriority : pri >= targetPriority; pri += dir) {
+    const other = entries.find(([, v]) => v.priority === pri);
+    if (other) {
+      await api(`/api/providers/${other[0]}/priority`, { method: 'POST', body: JSON.stringify({ priority: pri - dir }) });
+    }
+  }
+  await api(`/api/providers/${id}/priority`, { method: 'POST', body: JSON.stringify({ priority: targetPriority }) });
+  loadProvidersView();
+}
+
+function closeAllMovePopups() {
+  document.querySelectorAll('.move-popup.open').forEach(function(p) { p.classList.remove('open'); });
+}
+
 async function loadProvidersView() {
   providers = await api('/api/providers');
   const container = document.getElementById('providerList');
   providerOrder = Object.entries(providers).sort((a, b) => (a[1].priority || 999) - (b[1].priority || 999));
 
-  let html = `
+  let html = '';
+  if (providerOrder.length > 3) {
+    html += '<div id="pvIndex" class="provider-index">' +
+      providerOrder.map(function(entry) {
+        var id = entry[0], p = entry[1];
+        return '<button onclick="scrollToAndHighlight(\'pi-' + id + '\');this.blur()">' + (p.name || id) + '</button>';
+      }).join('') +
+    '</div>';
+  }
+  html += `
     <div class="toggle-all-bar">
       <button class="btn-primary" onclick="toggleAllProviders(true)">✅ Enable All</button>
       <button class="btn-secondary" onclick="toggleAllProviders(false)">❌ Disable All</button>
@@ -589,7 +679,7 @@ async function loadProvidersView() {
     </div>`;
   for (const [id, p] of providerOrder) {
     html += `
-      <div class="provider-item" data-id="${id}">
+      <div class="provider-item" id="pi-${id}" data-id="${id}">
         <span class="drag-handle">⠿</span>
         <div class="info">
           <div class="name">${p.name || id}</div>
@@ -604,7 +694,16 @@ async function loadProvidersView() {
             <button onclick="movePriority('${id}', -1)" title="Move up">▲</button>
             <button onclick="movePriority('${id}', 1)" title="Move down">▼</button>
           </div>
-          <span style="font-size:12px;color:var(--text2);width:24px;text-align:center">${p.priority}</span>
+          <div class="move-wrapper" style="position:relative">
+            <span onclick="toggleMovePopup('${id}', this)" style="font-size:12px;color:var(--accent);width:24px;text-align:center;cursor:pointer" title="Click to jump to priority">${p.priority}</span>
+            <div class="move-popup">
+              ${providerOrder.map(function(entry) {
+                var pid = entry[0], pp = entry[1];
+                var isHere = pid === id;
+                return '<button class="' + (isHere ? 'is-here' : '') + '" onclick="quickMoveProvider(\'' + id + '\', ' + pp.priority + ')" ' + (isHere ? 'disabled' : '') + '>' + pp.priority + '. ' + (pp.name || pid) + '</button>';
+              }).join('')}
+            </div>
+          </div>
           <label class="toggle">
             <input type="checkbox" ${p.enabled ? 'checked' : ''} onchange="toggleProvider('${id}')">
             <span class="slider"></span>
@@ -635,6 +734,7 @@ async function loadSettings() {
   document.getElementById('setProxyPass').value = cfg.proxy?.password || '';
   document.getElementById('setAutoplay').checked = cfg.autoplay !== false;
   document.getElementById('setIntroSkip').checked = cfg.introSkip === true;
+  loadIndexOpacity();
   if (cfg.qualityFilter) {
     qualityFilter = cfg.qualityFilter;
     ['4k', '1080', '720', 'sd', 'unknown'].forEach(function(k) {
@@ -748,6 +848,7 @@ server {
 
 document.addEventListener('click', function(e) {
   if (!e.target.closest('.hls-btn')) closeAllHlsDropdowns();
+  if (!e.target.closest('.move-wrapper')) closeAllMovePopups();
 });
 
 // ── Analytics Dashboard ───────────────────────────────────────────────
@@ -857,6 +958,13 @@ function connectAnalyticsRealtime() {
 // ── Test Panel ─────────────────────────────────────────────────────────
 let testEventSource = null;
 let testLogLines = 0;
+let testTotalProviders = 0;
+let testCompletedProviders = 0;
+
+function updateTestCounter() {
+  const el = document.getElementById('testCounter');
+  if (el) el.textContent = testTotalProviders ? '(' + (testTotalProviders - testCompletedProviders) + '/' + testTotalProviders + ' remaining)' : '';
+}
 
 function startTest() {
   const query = document.getElementById('testTmdbId').value.trim();
@@ -864,6 +972,13 @@ function startTest() {
   const type = document.getElementById('testTypeSelect').value;
   const season = document.getElementById('testSeason').value;
   const episode = document.getElementById('testEpisode').value;
+  const smartPing = document.getElementById('smartPingToggle').checked;
+
+  testTotalProviders = 0;
+  testCompletedProviders = 0;
+  updateTestCounter();
+  lastPingResults = [];
+  allStreams = [];
 
   const panel = document.getElementById('testPanel');
   const log = document.getElementById('testLog');
@@ -882,8 +997,27 @@ function startTest() {
 
   testEventSource = new EventSource(url);
 
+  // ── Smart ping state ──
+  let pingPromises = [];
+  let firstStreamPlayed = false;
+
+  function playNow(stream) {
+    firstStreamPlayed = true;
+    const encodedUrl = encodeURIComponent(stream.proxyUrl || stream.url);
+    switchView('player');
+    document.getElementById('playerMeta').textContent = (stream.name || 'Stream') + (stream.quality ? ' - ' + stream.quality : '');
+    anTrack('play', { url: stream.url, name: stream.name, quality: stream.quality, type: stream.type });
+    anStartHeartbeat({ currentStream: stream.name, currentUrl: location.href });
+    loadPlayer(stream.proxyUrl || stream.url, stream.name || 'Stream', stream.type || '');
+    renderSourceSelector();
+  }
+
+  // ── Event handlers ──
+
   testEventSource.addEventListener('start', function(e) {
     const data = JSON.parse(e.data);
+    testTotalProviders = data.total;
+    updateTestCounter();
     appendTestLog('info', '🔍 Testing ' + data.total + ' enabled provider(s)...');
   });
 
@@ -895,25 +1029,56 @@ function startTest() {
   testEventSource.addEventListener('stream', function(e) {
     const data = JSON.parse(e.data);
     appendTestLog('stream', '  ✅ <strong>' + data.name + '</strong> | ' + data.quality + ' → <span class="test-url">' + (data.url.length > 100 ? data.url.substring(0, 100) + '...' : data.url) + '</span>');
+    const stream = { proxyUrl: data.proxyUrl || data.url, url: data.url, name: data.name || 'Stream', quality: data.quality || 'Auto', type: data.type || '' };
+    allStreams.push({ ...stream, _providerName: data.name, _providerId: data.provider });
+
+    const pingRef = lastPingResults;
+    const doPing = function() {
+      return pingStream(stream.proxyUrl, 8000).then(function(r) {
+        pingRef.push({ url: r.url, time: r.time, alive: r.alive, provider: data.name, quality: data.quality });
+        renderPingResults();
+        return r;
+      });
+    };
+
+    if (smartPing) {
+      pingPromises.push(doPing());
+    } else if (!firstStreamPlayed) {
+      playNow(stream);
+      appendTestLog('success', '⚡ Auto-played <strong>' + data.name + '</strong> (' + data.quality + ') immediately');
+      pingPromises.push(doPing()); // background ping for display
+    } else {
+      pingPromises.push(doPing()); // background ping for display
+    }
   });
+
+  function onProviderFinish(e) {
+    testCompletedProviders++;
+    updateTestCounter();
+  }
 
   testEventSource.addEventListener('provider-done', function(e) {
     const data = JSON.parse(e.data);
+    onProviderFinish(e);
     appendTestLog('success', '✅ <strong>' + data.name + '</strong> done — <strong>' + data.count + '</strong> stream(s) found' + (data.servers && data.servers.length ? ' [' + data.servers.join(', ') + ']' : ''));
   });
 
   testEventSource.addEventListener('provider-empty', function(e) {
     const data = JSON.parse(e.data);
+    onProviderFinish(e);
     appendTestLog('warn', '⚠️ <strong>' + data.name + '</strong> returned no streams');
   });
 
   testEventSource.addEventListener('provider-error', function(e) {
     const data = JSON.parse(e.data);
+    onProviderFinish(e);
     appendTestLog('error', '❌ <strong>' + data.name + '</strong> error: ' + data.error);
   });
 
   testEventSource.addEventListener('done', function(e) {
     const data = JSON.parse(e.data);
+    const el = document.getElementById('testCounter');
+    if (el) el.textContent = '✅ Complete';
     const total = data.totalStreams || 0;
     appendTestLog(total > 0 ? 'success' : 'warn', '🏁 Scrape complete — <strong>' + total + '</strong> total stream(s) from <strong>' + (data.results ? data.results.length : 0) + '</strong> provider(s)' + (data.errors && data.errors.length ? ' (' + data.errors.length + ' error(s))' : ''));
     testEventSource.close();
@@ -922,22 +1087,41 @@ function startTest() {
     document.getElementById('testBtn').textContent = '🧪 Test';
 
     if (data.results && data.results.length > 0) {
-      allStreams = [];
+      // Merge any remaining streams from results
       for (const group of data.results) {
         for (const s of group.streams) {
-          allStreams.push({ ...s, _providerName: group.providerName, _providerId: group.provider });
+          const exists = allStreams.some(function(a) { return (a.proxyUrl || a.url) === (s.proxyUrl || s.url); });
+          if (!exists) allStreams.push({ ...s, _providerName: group.providerName, _providerId: group.provider });
         }
       }
       renderSourceSelector();
-      // Ping-test all streams and play the fastest responsive one
-      selectFastestStream().then(function(best) {
-        if (best) {
-          const encodedUrl = encodeURIComponent(best.proxyUrl || best.url);
-          playStream(encodedUrl, best.name || 'Stream', best.quality || 'Auto', best.type || '');
-        }
-      });
+      renderPingResults();
     } else {
       appendTestLog('warn', '💡 No streams loaded — source selector will not appear');
+    }
+
+    if (smartPing) {
+      // Wait for all in-progress pings, pick fastest alive, play it
+      const doneRef = lastPingResults;
+      Promise.allSettled(pingPromises).then(function() {
+        renderPingResults();
+        const alive = doneRef.filter(function(r) { return r.alive; }).sort(function(a, b) { return a.time - b.time; });
+        const best = alive.length > 0
+          ? allStreams.find(function(s) { return (s.proxyUrl || s.url) === alive[0].url; })
+          : null;
+        const target = best || allStreams[0];
+        if (target) {
+          playNow(target);
+          if (best) {
+            appendTestLog('success', '⚡ Smart ping chose <strong>' + (best.provider || '?') + '</strong> (' + Math.round(best.time) + 'ms) — ' + (best.quality || 'Auto'));
+          } else {
+            appendTestLog('warn', '⚠️ No responsive streams — playing first available');
+          }
+        }
+      });
+    } else if (!firstStreamPlayed && allStreams.length > 0) {
+      // No stream auto-played yet (all returned empty during scrape)
+      playNow(allStreams[0]);
     }
   });
 
@@ -966,6 +1150,15 @@ function clearTestLog() {
   document.getElementById('testLog').innerHTML = '';
   document.getElementById('testPanel').style.display = 'none';
   testLogLines = 0;
+  testTotalProviders = 0;
+  testCompletedProviders = 0;
+  updateTestCounter();
 }
 
-window.onload = () => { loadProvidersView(); };
+window.onload = () => {
+  loadProvidersView();
+  initPlyr();
+  loadIndexOpacity();
+  const saved = localStorage.getItem('activeView');
+  if (saved && saved !== 'search') switchView(saved);
+};

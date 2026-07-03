@@ -218,6 +218,8 @@ function extractServiceStreams(_0x2a0b7d, _0x52161e, _0x1fe256, _0x210363, _0x2e
     if (_0x201efd && _0x201efd.video_link) {
       const _0x47f41e = _0x201efd.video_link;
       const _0x19e2ab = _0x47f41e.includes(".m3u8");
+      const _0x2f648b = _0x201efd.referer || "https://tv.imgcdn.kim/";
+      const _0x2f648c = (() => { try { return new URL(_0x2f648b).origin; } catch(e) { return "https://tv.imgcdn.kim"; } })();
       _0xf23d12.push({
         name: _0x52161e.name,
         title: "Auto",
@@ -225,7 +227,8 @@ function extractServiceStreams(_0x2a0b7d, _0x52161e, _0x1fe256, _0x210363, _0x2e
         quality: "Auto",
         type: _0x19e2ab ? "m3u8" : _0x47f41e.includes(".mp4") || _0x47f41e.includes(".mkv") ? "video" : null,
         headers: {
-          Referer: _0x201efd.referer || "",
+          Referer: _0x2f648b,
+          Origin: _0x2f648c,
           "User-Agent": _0x49d584["User-Agent"]
         },
         provider: "netmirror"
@@ -233,7 +236,8 @@ function extractServiceStreams(_0x2a0b7d, _0x52161e, _0x1fe256, _0x210363, _0x2e
       if (_0x19e2ab) {
         try {
           const _0x5286e1 = yield generateM3u8(_0x47f41e, {
-            Referer: _0x201efd.referer || "",
+            Referer: _0x2f648b,
+            Origin: _0x2f648c,
             "User-Agent": _0x49d584["User-Agent"]
           });
           _0x5286e1.forEach(_0x15e13c => {
@@ -244,7 +248,8 @@ function extractServiceStreams(_0x2a0b7d, _0x52161e, _0x1fe256, _0x210363, _0x2e
               quality: _0x15e13c.quality,
               type: "m3u8",
               headers: {
-                Referer: _0x201efd.referer || "",
+                Referer: _0x2f648b,
+                Origin: _0x2f648c,
                 "User-Agent": _0x49d584["User-Agent"]
               },
               provider: "netmirror"

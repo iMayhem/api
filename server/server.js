@@ -268,10 +268,11 @@ app.get('/api/search/stream', async (req, res) => {
   const results = [];
   const errors = [];
   const timeoutMs = config.globalTimeout || 20000;
+  const CONCURRENCY = 8;
 
   emit('start', { total: enabledProviders.length });
 
-  for (const [id, pConfig] of enabledProviders) {
+  async function processProvider(id, pConfig) {
     const name = providerMeta[id]?.name || id;
     emit('provider-start', { provider: id, name });
     try {
@@ -304,6 +305,12 @@ app.get('/api/search/stream', async (req, res) => {
       emit('provider-error', { provider: id, name, error: e.message });
       errors.push({ provider: id, error: e.message });
     }
+  }
+
+  // Process providers in parallel batches
+  for (let i = 0; i < enabledProviders.length; i += CONCURRENCY) {
+    const batch = enabledProviders.slice(i, i + CONCURRENCY);
+    await Promise.allSettled(batch.map(([id, pConfig]) => processProvider(id, pConfig)));
   }
 
   emit('done', { results, errors, totalStreams: results.reduce((s, r) => s + r.streams.length, 0) });

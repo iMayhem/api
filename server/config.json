@@ -13,272 +13,272 @@
   "maxResultsPerProvider": 20,
   "providers": {
     "4khdhub": {
-      "enabled": true,
-      "priority": 1,
-      "disabledServers": []
-    },
-    "4khdhubnew": {
-      "enabled": true,
-      "priority": 2,
-      "disabledServers": []
-    },
-    "allanime": {
-      "enabled": true,
-      "priority": 3,
-      "disabledServers": []
-    },
-    "allmovieland": {
-      "enabled": true,
-      "priority": 4,
-      "disabledServers": []
-    },
-    "allwish": {
-      "enabled": true,
-      "priority": 5,
-      "disabledServers": []
-    },
-    "anidb": {
-      "enabled": true,
-      "priority": 6,
-      "disabledServers": []
-    },
-    "anikototv": {
-      "enabled": true,
-      "priority": 7,
-      "disabledServers": []
-    },
-    "anime-sama": {
-      "enabled": true,
+      "enabled": false,
       "priority": 8,
       "disabledServers": []
     },
-    "animekai": {
-      "enabled": true,
+    "4khdhubnew": {
+      "enabled": false,
       "priority": 9,
       "disabledServers": []
     },
-    "animepahe": {
-      "enabled": true,
+    "allanime": {
+      "enabled": false,
       "priority": 10,
       "disabledServers": []
     },
-    "animesalt": {
-      "enabled": true,
+    "allmovieland": {
+      "enabled": false,
       "priority": 11,
       "disabledServers": []
     },
-    "animetsu": {
-      "enabled": true,
+    "allwish": {
+      "enabled": false,
       "priority": 12,
       "disabledServers": []
     },
-    "animeworld": {
-      "enabled": true,
+    "anidb": {
+      "enabled": false,
       "priority": 13,
+      "disabledServers": []
+    },
+    "anikototv": {
+      "enabled": false,
+      "priority": 14,
+      "disabledServers": []
+    },
+    "anime-sama": {
+      "enabled": false,
+      "priority": 15,
+      "disabledServers": []
+    },
+    "animekai": {
+      "enabled": false,
+      "priority": 16,
+      "disabledServers": []
+    },
+    "animepahe": {
+      "enabled": false,
+      "priority": 17,
+      "disabledServers": []
+    },
+    "animesalt": {
+      "enabled": false,
+      "priority": 18,
+      "disabledServers": []
+    },
+    "animetsu": {
+      "enabled": false,
+      "priority": 19,
+      "disabledServers": []
+    },
+    "animeworld": {
+      "enabled": false,
+      "priority": 20,
       "disabledServers": []
     },
     "castle": {
       "enabled": true,
-      "priority": 14,
+      "priority": 3,
       "disabledServers": []
     },
     "cineby": {
-      "enabled": true,
-      "priority": 15,
-      "disabledServers": []
-    },
-    "cinefreak": {
-      "enabled": true,
-      "priority": 16,
-      "disabledServers": []
-    },
-    "cinemacity": {
-      "enabled": true,
-      "priority": 17,
-      "disabledServers": []
-    },
-    "cinemm": {
-      "enabled": true,
-      "priority": 18,
-      "disabledServers": []
-    },
-    "dahmermovies-4k": {
-      "enabled": true,
-      "priority": 19,
-      "disabledServers": []
-    },
-    "dahmermovies": {
-      "enabled": true,
-      "priority": 20,
-      "disabledServers": []
-    },
-    "dooflix": {
-      "enabled": true,
+      "enabled": false,
       "priority": 21,
       "disabledServers": []
     },
-    "einthusan": {
-      "enabled": true,
+    "cinefreak": {
+      "enabled": false,
       "priority": 22,
       "disabledServers": []
     },
-    "fibwatch": {
-      "enabled": true,
-      "priority": 23,
+    "cinemacity": {
+      "enabled": false,
+      "priority": 6,
       "disabledServers": []
     },
-    "goatapi": {
-      "enabled": true,
+    "cinemm": {
+      "enabled": false,
       "priority": 24,
       "disabledServers": []
     },
-    "gramcinema": {
-      "enabled": true,
+    "dahmermovies-4k": {
+      "enabled": false,
+      "priority": 23,
+      "disabledServers": []
+    },
+    "dahmermovies": {
+      "enabled": false,
       "priority": 25,
       "disabledServers": []
     },
-    "hdhub4u": {
-      "enabled": true,
+    "dooflix": {
+      "enabled": false,
       "priority": 26,
       "disabledServers": []
     },
-    "hdmovie2": {
-      "enabled": true,
+    "einthusan": {
+      "enabled": false,
       "priority": 27,
       "disabledServers": []
     },
-    "hianime": {
-      "enabled": true,
+    "fibwatch": {
+      "enabled": false,
       "priority": 28,
       "disabledServers": []
     },
-    "hindmoviez": {
-      "enabled": true,
+    "goatapi": {
+      "enabled": false,
       "priority": 29,
       "disabledServers": []
     },
-    "isaidub": {
-      "enabled": true,
+    "gramcinema": {
+      "enabled": false,
       "priority": 30,
       "disabledServers": []
     },
-    "kisskh": {
-      "enabled": true,
+    "hdhub4u": {
+      "enabled": false,
       "priority": 31,
       "disabledServers": []
     },
-    "kurage": {
-      "enabled": true,
+    "hdmovie2": {
+      "enabled": false,
       "priority": 32,
+      "disabledServers": []
+    },
+    "hianime": {
+      "enabled": false,
+      "priority": 33,
+      "disabledServers": []
+    },
+    "hindmoviez": {
+      "enabled": false,
+      "priority": 34,
+      "disabledServers": []
+    },
+    "isaidub": {
+      "enabled": false,
+      "priority": 35,
+      "disabledServers": []
+    },
+    "kisskh": {
+      "enabled": false,
+      "priority": 36,
+      "disabledServers": []
+    },
+    "kurage": {
+      "enabled": false,
+      "priority": 37,
       "disabledServers": []
     },
     "lordflix": {
       "enabled": true,
-      "priority": 33,
+      "priority": 2,
       "disabledServers": []
     },
     "movieblast": {
-      "enabled": true,
-      "priority": 34,
+      "enabled": false,
+      "priority": 38,
       "disabledServers": []
     },
     "moviebox": {
       "enabled": true,
-      "priority": 35,
+      "priority": 5,
       "disabledServers": []
     },
     "movies4u": {
-      "enabled": true,
-      "priority": 36,
+      "enabled": false,
+      "priority": 7,
       "disabledServers": []
     },
     "moviesdrive": {
-      "enabled": true,
-      "priority": 37,
-      "disabledServers": []
-    },
-    "moviesmod": {
-      "enabled": true,
-      "priority": 38,
-      "disabledServers": []
-    },
-    "movix": {
-      "enabled": true,
-      "priority": 39,
-      "disabledServers": []
-    },
-    "multivid": {
-      "enabled": true,
+      "enabled": false,
       "priority": 40,
       "disabledServers": []
     },
-    "nakios": {
-      "enabled": true,
+    "moviesmod": {
+      "enabled": false,
+      "priority": 39,
+      "disabledServers": []
+    },
+    "movix": {
+      "enabled": false,
       "priority": 41,
+      "disabledServers": []
+    },
+    "multivid": {
+      "enabled": false,
+      "priority": 42,
+      "disabledServers": []
+    },
+    "nakios": {
+      "enabled": false,
+      "priority": 43,
       "disabledServers": []
     },
     "netmirror": {
       "enabled": true,
-      "priority": 42,
+      "priority": 4,
       "disabledServers": []
     },
     "notorrent": {
-      "enabled": true,
-      "priority": 43,
-      "disabledServers": []
-    },
-    "onetouchtv": {
-      "enabled": true,
+      "enabled": false,
       "priority": 44,
       "disabledServers": []
     },
-    "onlykdrama": {
-      "enabled": true,
+    "onetouchtv": {
+      "enabled": false,
       "priority": 45,
+      "disabledServers": []
+    },
+    "onlykdrama": {
+      "enabled": false,
+      "priority": 46,
       "disabledServers": []
     },
     "peachify": {
       "enabled": true,
-      "priority": 46,
+      "priority": 1,
       "disabledServers": []
     },
     "playimdb": {
-      "enabled": true,
+      "enabled": false,
       "priority": 47,
       "disabledServers": []
     },
     "purstream": {
-      "enabled": true,
+      "enabled": false,
       "priority": 48,
       "disabledServers": []
     },
     "showbox": {
-      "enabled": true,
+      "enabled": false,
       "priority": 49,
       "disabledServers": []
     },
     "toflix": {
-      "enabled": true,
+      "enabled": false,
       "priority": 50,
       "disabledServers": []
     },
     "topcartoons": {
-      "enabled": true,
+      "enabled": false,
       "priority": 51,
       "disabledServers": []
     },
     "torrentio": {
-      "enabled": true,
+      "enabled": false,
       "priority": 52,
       "disabledServers": []
     },
     "uhdmovies": {
-      "enabled": true,
+      "enabled": false,
       "priority": 53,
       "disabledServers": []
     },
     "vegamovies": {
-      "enabled": true,
+      "enabled": false,
       "priority": 54,
       "disabledServers": []
     },
@@ -288,42 +288,42 @@
       "disabledServers": []
     },
     "vidfast": {
-      "enabled": true,
+      "enabled": false,
       "priority": 56,
       "disabledServers": []
     },
     "vidlink": {
-      "enabled": true,
+      "enabled": false,
       "priority": 57,
       "disabledServers": []
     },
     "vidsrc": {
-      "enabled": true,
+      "enabled": false,
       "priority": 58,
       "disabledServers": []
     },
     "vixsrc": {
-      "enabled": true,
+      "enabled": false,
       "priority": 59,
       "disabledServers": []
     },
     "xpass": {
-      "enabled": true,
+      "enabled": false,
       "priority": 60,
       "disabledServers": []
     },
     "zinkmovies": {
-      "enabled": true,
+      "enabled": false,
       "priority": 61,
       "disabledServers": []
     },
     "tasty": {
-      "enabled": true,
+      "enabled": false,
       "priority": 62,
       "disabledServers": []
     },
     "cinestream": {
-      "enabled": true,
+      "enabled": false,
       "priority": 63,
       "disabledServers": []
     }
