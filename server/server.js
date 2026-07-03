@@ -294,7 +294,11 @@ app.get('/api/search/stream', async (req, res) => {
   });
   res.flushHeaders();
 
+  let cancelled = false;
+  req.on('close', () => { cancelled = true; });
+
   function emit(event, data) {
+    if (cancelled) return;
     try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch (e) {}
   }
 
@@ -315,6 +319,7 @@ app.get('/api/search/stream', async (req, res) => {
   emit('start', { total: enabledProviders.length });
 
   async function processProvider(id, pConfig) {
+    if (cancelled) return;
     const name = providerMeta[id]?.name || id;
     emit('provider-start', { provider: id, name });
     try {
@@ -322,9 +327,11 @@ app.get('/api/search/stream', async (req, res) => {
       const streamPromise = mod.getStreams(query, type, season || null, episode || null);
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeoutMs));
       const streams = await Promise.race([streamPromise, timeoutPromise]);
+      if (cancelled) return;
       if (streams && streams.length > 0) {
         const filtered = filterStreams(streams, id);
         for (const stream of filtered.slice(0, config.maxResultsPerProvider || 20)) {
+          if (cancelled) return;
           if (!stream.type) {
             if (stream.url.includes('.m3u8')) stream.type = 'm3u8';
             else if (stream.url.includes('.mpd')) stream.type = 'mpd';
@@ -350,12 +357,14 @@ app.get('/api/search/stream', async (req, res) => {
   }
 
   // Process providers in parallel batches
-  for (let i = 0; i < enabledProviders.length; i += CONCURRENCY) {
+  for (let i = 0; i < enabledProviders.length && !cancelled; i += CONCURRENCY) {
     const batch = enabledProviders.slice(i, i + CONCURRENCY);
     await Promise.allSettled(batch.map(([id, pConfig]) => processProvider(id, pConfig)));
   }
 
-  emit('done', { results, errors, totalStreams: results.reduce((s, r) => s + r.streams.length, 0) });
+  if (!cancelled) {
+    emit('done', { results, errors, totalStreams: results.reduce((s, r) => s + r.streams.length, 0) });
+  }
   res.end();
 });
 

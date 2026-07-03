@@ -992,6 +992,7 @@ function startTest() {
 
   document.getElementById('testBtn').disabled = true;
   document.getElementById('testBtn').textContent = '⏳ Scraping...';
+  document.getElementById('stopTestBtn').style.display = '';
 
   if (testEventSource) testEventSource.close();
 
@@ -1089,6 +1090,7 @@ function startTest() {
     testEventSource = null;
     document.getElementById('testBtn').disabled = false;
     document.getElementById('testBtn').textContent = '🧪 Test';
+    document.getElementById('stopTestBtn').style.display = 'none';
 
     if (data.results && data.results.length > 0) {
       // Merge any remaining streams from results
@@ -1135,6 +1137,7 @@ function startTest() {
     testEventSource = null;
     document.getElementById('testBtn').disabled = false;
     document.getElementById('testBtn').textContent = '🧪 Test';
+    document.getElementById('stopTestBtn').style.display = 'none';
   };
 }
 
@@ -1148,6 +1151,17 @@ function appendTestLog(type, msg) {
   testLogLines++;
   // Cap at 500 lines
   while (log.children.length > 500) log.removeChild(log.firstChild);
+}
+
+function stopTest() {
+  if (testEventSource) {
+    testEventSource.close();
+    testEventSource = null;
+  }
+  document.getElementById('testBtn').disabled = false;
+  document.getElementById('testBtn').textContent = '🧪 Test';
+  document.getElementById('stopTestBtn').style.display = 'none';
+  appendTestLog('warn', '⏹ Scrape stopped by user');
 }
 
 function clearTestLog() {

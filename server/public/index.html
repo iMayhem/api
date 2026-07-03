@@ -97,7 +97,10 @@
         <div id="testPanel" class="test-panel" style="display:none">
       <div class="test-panel-header">
         <h3>📋 Realtime Scrape Log <span id="testCounter" class="test-counter"></span></h3>
-        <button class="btn-secondary" onclick="clearTestLog()">Clear</button>
+        <div style="display:flex;gap:4px">
+          <button id="stopTestBtn" class="btn-secondary" onclick="stopTest()" style="display:none">⏹ Stop</button>
+          <button class="btn-secondary" onclick="clearTestLog()">Clear</button>
+        </div>
       </div>
           <div id="testLog" class="test-log"></div>
         </div>
