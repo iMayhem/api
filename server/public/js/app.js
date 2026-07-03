@@ -359,7 +359,7 @@ function closeAllHlsDropdowns() {
 }
 
 function loadPlayer(url, title, type) {
-  const container = document.getElementById('playerContainer');
+  const video = document.getElementById('plyrVideo');
 
   if (hlsInstance) {
     hlsInstance.destroy();
@@ -376,49 +376,9 @@ function loadPlayer(url, title, type) {
   currentHlsAudio = -1;
 
   const mimeType = detectType(url, type);
-
-  container.innerHTML = `
-    <div class="plyr-wrapper" style="position:relative">
-      <video id="plyrVideo" playsinline controls preload="auto" crossorigin>
-        <source src="${url.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}" type="${mimeType}">
-      </video>
-      <div id="videoLoading" class="video-loading">
-        <div class="loading-anim">
-          <div class="runner">
-            <div class="runner-head"></div>
-            <div class="runner-body"></div>
-            <div class="runner-arms">
-              <div class="runner-arm runner-arm-l"></div>
-              <div class="runner-arm runner-arm-r"></div>
-            </div>
-            <div class="runner-legs">
-              <div class="runner-leg runner-leg-l"></div>
-              <div class="runner-leg runner-leg-r"></div>
-            </div>
-            <div class="runner-shadow"></div>
-          </div>
-          <div class="loading-text-wrap" style="height:18px">
-            <div class="loading-text-inner" style="animation-duration:6s">
-              <span>Loading stream...</span>
-              <span>Buffering...</span>
-              <span>Almost there...</span>
-            </div>
-          </div>
-          <div class="loading-track">
-            <div class="loading-dot"></div>
-            <div class="loading-dot"></div>
-            <div class="loading-dot"></div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-
-  const video = document.getElementById('plyrVideo');
-  const vLoading = document.getElementById('videoLoading');
-
-  function hideVideoLoad() {
-    if (vLoading) vLoading.classList.add('hidden');
-  }
+  video.removeAttribute('src');
+  video.innerHTML = '';
+  video.load();
 
   if (mimeType === 'application/x-mpegURL' && Hls.isSupported()) {
     hlsInstance = new Hls(HLS_CONFIG);
@@ -440,15 +400,12 @@ function loadPlayer(url, title, type) {
     });
   } else {
     video.src = url;
+    video.load();
     player = new Plyr(video, {
       controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
       settings: ['quality', 'speed'],
     });
-    setTimeout(hideVideoLoad, 1500);
   }
-
-  video.addEventListener('canplay', hideVideoLoad);
-  video.addEventListener('playing', hideVideoLoad);
 
   preloadRemaining(url);
 }

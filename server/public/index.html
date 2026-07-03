@@ -57,32 +57,8 @@
       <h2>▶️ Media Player</h2>
       <p id="playerMeta">Select a stream from search results to play</p>
     </div>
-    <div id="playerContainer">
-      <div class="player-placeholder" id="playerPlaceholder">
-        <div class="loading-anim">
-          <div class="runner">
-            <div class="runner-head"></div>
-            <div class="runner-body"></div>
-            <div class="runner-arms">
-              <div class="runner-arm runner-arm-l"></div>
-              <div class="runner-arm runner-arm-r"></div>
-            </div>
-            <div class="runner-legs">
-              <div class="runner-leg runner-leg-l"></div>
-              <div class="runner-leg runner-leg-r"></div>
-            </div>
-            <div class="runner-shadow"></div>
-          </div>
-          <div>
-            <p id="playerPlaceholderText">Search for content, then click ▶️ on any stream card to play it here.</p>
-          </div>
-          <div class="loading-track">
-            <div class="loading-dot"></div>
-            <div class="loading-dot"></div>
-            <div class="loading-dot"></div>
-          </div>
-        </div>
-      </div>
+    <div id="playerContainer" style="position:relative">
+      <video id="plyrVideo" playsinline controls preload="auto" crossorigin></video>
     </div>
     <div id="sourceSelector" class="source-selector" style="display:none">
       <h3>📡 Source Selection</h3>
