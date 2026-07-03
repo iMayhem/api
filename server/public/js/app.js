@@ -272,12 +272,7 @@ function preloadRemaining(exceptUrl) {
   for (const s of allStreams) {
     const su = s.proxyUrl || s.url;
     if (su !== exceptUrl) {
-      // Warm CDN by fetching first bytes
       fetch(su, { method: 'GET', headers: { 'Range': 'bytes=0-0' } }).catch(() => {});
-      // Also fetch the playlist if it's m3u8 to pre-warm DNS+CDN
-      if (su.includes('.m3u8') || su.includes('/proxy')) {
-        fetch(su).catch(() => {});
-      }
     }
   }
 }

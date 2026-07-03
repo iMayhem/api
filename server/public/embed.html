@@ -375,39 +375,40 @@ body { background: #000; color: #fff; font-family: system-ui, -apple-system, Bli
   // ── Main ──
   if (tmdb) {
     setStatus('Finding streams...', 'Searching available sources for this title');
-    var typesToTry = [];
-    if (params.get('type')) {
-      typesToTry.push({ type: mediaType, season: season, episode: episode });
-    } else {
-      typesToTry.push({ type: 'movie', season: '', episode: '' });
-      typesToTry.push({ type: 'tv', season: season || '1', episode: episode || '1' });
+
+    function handleResults(data) {
+      if (data && data.totalStreams > 0) {
+        (data.results || []).forEach(function(p) {
+          (p.streams || []).forEach(function(s) {
+            streams.push({ url: s.proxyUrl, type: s.type || 'm3u8' });
+          });
+        });
+      }
     }
 
-    function tryType(idx) {
-      if (idx >= typesToTry.length) {
-        if (streams.length === 0) showError('No streams found.');
-        else { setStatus('Starting playback...', 'Loading selected stream'); playUrl(streams[0].url, streams[0].type); }
-        return;
-      }
-      var t = typesToTry[idx];
-      var url = '/api/search?q=' + encodeURIComponent(tmdb) + '&type=' + encodeURIComponent(t.type);
-      if (t.season) url += '&season=' + encodeURIComponent(t.season);
-      if (t.episode) url += '&episode=' + encodeURIComponent(t.episode);
-      fetch(url)
-        .then(function(r) { return r.ok ? r.json() : null; })
-        .then(function(data) {
-          if (data && data.totalStreams > 0) {
-            (data.results || []).forEach(function(p) {
-              (p.streams || []).forEach(function(s) {
-                streams.push({ url: s.proxyUrl, type: s.type || 'm3u8' });
-              });
-            });
-          }
-          tryType(idx + 1);
-        })
-        .catch(function() { tryType(idx + 1); });
+    function startPlayback() {
+      if (streams.length === 0) { showError('No streams found.'); return; }
+      setStatus('Starting playback...', 'Loading selected stream');
+      playUrl(streams[0].url, streams[0].type);
     }
-    tryType(0);
+
+    if (params.get('type')) {
+      // Single type search
+      var tUrl = '/api/search?q=' + encodeURIComponent(tmdb) + '&type=' + encodeURIComponent(mediaType);
+      if (season) tUrl += '&season=' + encodeURIComponent(season);
+      if (episode) tUrl += '&episode=' + encodeURIComponent(episode);
+      fetch(tUrl).then(function(r) { return r.ok ? r.json() : null; }).then(function(data) { handleResults(data); startPlayback(); }).catch(function() { startPlayback(); });
+    } else {
+      // Parallel movie + TV search — whichever responds first with streams
+      var movieUrl = '/api/search?q=' + encodeURIComponent(tmdb) + '&type=movie';
+      var tvUrl = '/api/search?q=' + encodeURIComponent(tmdb) + '&type=tv&season=' + encodeURIComponent(season || '1') + '&episode=' + encodeURIComponent(episode || '1');
+      var movieDone = false, tvDone = false;
+      function checkBoth() {
+        if (movieDone && tvDone) startPlayback();
+      }
+      fetch(movieUrl).then(function(r) { return r.ok ? r.json() : null; }).then(function(data) { handleResults(data); movieDone = true; checkBoth(); }).catch(function() { movieDone = true; checkBoth(); });
+      fetch(tvUrl).then(function(r) { return r.ok ? r.json() : null; }).then(function(data) { handleResults(data); tvDone = true; checkBoth(); }).catch(function() { tvDone = true; checkBoth(); });
+    }
     return;
   }
 

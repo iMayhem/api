@@ -23,12 +23,21 @@ function generateStreamId() {
   return (++streamIdCounter).toString(36) + crypto.randomBytes(4).toString('hex');
 }
 
+// Stream store auto-cleanup every 5 minutes
+const STREAM_TTL = 5 * 60 * 1000;
+setInterval(function() {
+  const now = Date.now();
+  for (const [key, entry] of streamStore) {
+    if (now - entry.ts > STREAM_TTL) streamStore.delete(key);
+  }
+}, 60 * 1000);
+
 function loadConfig() {
   let cfg;
   try {
     cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   } catch {
-    cfg = { port: 3000, tmdbApiKey: '', autoplay: true, introSkip: false, proxy: { enabled: false }, globalTimeout: 20000, maxResultsPerProvider: 20, providers: {}, qualityFilter: { '4k': true, '1080': true, '720': true, 'sd': true, 'unknown': true } };
+    cfg = { port: 3000, tmdbApiKey: '', autoplay: true, introSkip: false, proxy: { enabled: false }, globalTimeout: 12000, maxResultsPerProvider: 20, providers: {}, qualityFilter: { '4k': true, '1080': true, '720': true, 'sd': true, 'unknown': true } };
   }
   if (!cfg.providers) cfg.providers = {};
   // Merge user's provider overrides from gitignored file
@@ -110,7 +119,7 @@ async function fetchWithProxy(url, opts = {}) {
     opts.agent = agent;
   }
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.globalTimeout || 20000);
+  const timeout = setTimeout(() => controller.abort(), config.globalTimeout || 12000);
   opts.signal = controller.signal;
   try {
     const res = await fetch(url, opts);
@@ -234,7 +243,7 @@ app.get('/api/search', async (req, res) => {
   const results = [];
   const errors = [];
 
-  const timeoutMs = config.globalTimeout || 20000;
+  const timeoutMs = config.globalTimeout || 12000;
   await Promise.allSettled(enabledProviders.map(async ([id, pConfig]) => {
     try {
       const mod = providers[id];
@@ -255,7 +264,7 @@ app.get('/api/search', async (req, res) => {
               else stream.type = 'mp4';
             }
             const storeId = generateStreamId();
-            streamStore.set(storeId, {
+            streamStore.set(storeId, { ts: Date.now(),
               url: stream.url,
               headers: stream.headers || {},
               type: stream.type,
@@ -313,8 +322,8 @@ app.get('/api/search/stream', async (req, res) => {
   const enabledProviders = getEnabledProvidersSorted();
   const results = [];
   const errors = [];
-  const timeoutMs = config.globalTimeout || 20000;
-  const CONCURRENCY = 8;
+  const timeoutMs = config.globalTimeout || 12000;
+  const CONCURRENCY = 6;
 
   emit('start', { total: enabledProviders.length });
 
@@ -341,7 +350,7 @@ app.get('/api/search/stream', async (req, res) => {
             else stream.type = 'mp4';
           }
           const storeId = generateStreamId();
-          streamStore.set(storeId, { url: stream.url, headers: stream.headers || {}, type: stream.type });
+          streamStore.set(storeId, { ts: Date.now(), url: stream.url, headers: stream.headers || {}, type: stream.type });
           stream.proxyUrl = `/proxy?id=${storeId}`;
           emit('stream', { provider: id, name, quality: stream.quality || 'Auto', url: stream.url, proxyUrl: stream.proxyUrl, type: stream.type, title: stream.title || '' });
         }
@@ -413,7 +422,7 @@ app.get('/api/providers/:id/discover', async (req, res) => {
   if (!providers[id]) return res.status(404).json({ error: 'Provider not found' });
   try {
     const mod = providers[id];
-    const timeoutMs = config.globalTimeout || 20000;
+    const timeoutMs = config.globalTimeout || 12000;
     const streamPromise = mod.getStreams(q, type, null, null);
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 15000));
     const streams = await Promise.race([streamPromise, timeoutPromise]);
