@@ -554,19 +554,6 @@ app.get('/api/analytics/stats', analytics.handleStats);
 app.get('/api/analytics/events', analytics.handleEventsList);
 app.get('/api/analytics/realtime', analytics.handleRealtime);
 
-// ============ Embed Routes ============
-
-// Embed player page
-app.get('/embed', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'embed.html'));
-});
-app.get('/embed/movie/:id', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'embed.html'));
-});
-app.get('/embed/tv/:id/:season/:episode', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'embed.html'));
-});
-
 // Documentation page
 app.get('/docs', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'docs.html'));
@@ -574,7 +561,7 @@ app.get('/docs', (req, res) => {
 
 // SPA fallback - serve index.html for non-matching routes
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api/') || req.path.startsWith('/proxy') || req.path.startsWith('/embed') || req.path.startsWith('/docs') || req.path.startsWith('/css/') || req.path.startsWith('/js/')) return next();
+  if (req.path.startsWith('/api/') || req.path.startsWith('/proxy') || req.path.startsWith('/docs') || req.path.startsWith('/css/') || req.path.startsWith('/js/')) return next();
   res.sendFile(path.join(__dirname, 'public', 'index.html'), err => { if (err) next(); });
 });
 
@@ -585,7 +572,7 @@ async function start() {
   console.log(`Loaded ${Object.keys(providers).length} providers`);
   app.listen(config.port, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${config.port}`);
-    console.log(`  Embed player: /embed  |  Proxy: /proxy  |  Docs: /docs`);
+    console.log(`  Proxy: /proxy  |  Docs: /docs`);
     const os = require('os');
     const nets = os.networkInterfaces();
     for (const name of Object.keys(nets)) {
