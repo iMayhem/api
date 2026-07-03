@@ -401,6 +401,7 @@ function closeAllHlsDropdowns() {
 const PLYR_CONFIG = {
   controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
   settings: ['quality', 'speed'],
+  autoplay: true,
 };
 
 function initPlyr() {
@@ -411,6 +412,7 @@ function initPlyr() {
 
 function loadPlayer(url, title, type) {
   const video = document.getElementById('plyrVideo');
+  video.autoplay = true;
 
   // Destroy old HLS if switching
   if (hlsInstance) {
@@ -450,6 +452,7 @@ function loadPlayer(url, title, type) {
       if (!player) {
         player = new Plyr(video, PLYR_CONFIG);
       }
+      player.play();
     });
     hlsInstance.on(Hls.Events.ERROR, (e, data) => {
       if (data.fatal) { anTrack('error', { message: data.type + ': ' + data.details, url }); markStreamLoaded(); }
@@ -461,6 +464,8 @@ function loadPlayer(url, title, type) {
     video.load();
     if (!player) {
       player = new Plyr(video, PLYR_CONFIG);
+    } else {
+      player.play();
     }
   }
 
