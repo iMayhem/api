@@ -861,6 +861,24 @@ function startTest() {
     testEventSource = null;
     document.getElementById('testBtn').disabled = false;
     document.getElementById('testBtn').textContent = '🧪 Test';
+
+    if (data.results && data.results.length > 0) {
+      allStreams = [];
+      for (const group of data.results) {
+        for (const s of group.streams) {
+          allStreams.push({ ...s, _providerName: group.providerName, _providerId: group.provider });
+        }
+      }
+      renderSourceSelector();
+      // Auto-play the first stream
+      const first = allStreams[0];
+      if (first) {
+        const encodedUrl = encodeURIComponent(first.proxyUrl || first.url);
+        playStream(encodedUrl, first.name || 'Stream', first.quality || 'Auto', first.type || '');
+      }
+    } else {
+      appendTestLog('warn', '💡 No streams loaded — source selector will not appear');
+    }
   });
 
   testEventSource.onerror = function() {
