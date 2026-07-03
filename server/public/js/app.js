@@ -358,8 +358,22 @@ function closeAllHlsDropdowns() {
   document.querySelectorAll('.hls-dropdown.open').forEach(function(d) { d.classList.remove('open'); });
 }
 
+function showLoader(text) {
+  const loader = document.getElementById('playerLoader');
+  if (!loader) return;
+  loader.querySelector('.player-loader-text').textContent = text || 'Loading stream...';
+  loader.style.display = 'flex';
+}
+
+function hideLoader() {
+  const loader = document.getElementById('playerLoader');
+  if (loader) loader.style.display = 'none';
+}
+
 function loadPlayer(url, title, type) {
   const video = document.getElementById('plyrVideo');
+
+  showLoader('Loading ' + (title || 'stream') + '...');
 
   if (hlsInstance) {
     hlsInstance.destroy();
@@ -380,6 +394,14 @@ function loadPlayer(url, title, type) {
   video.innerHTML = '';
   video.load();
 
+  function onCanPlay() {
+    hideLoader();
+    video.removeEventListener('canplay', onCanPlay);
+    video.removeEventListener('playing', onCanPlay);
+  }
+  video.addEventListener('canplay', onCanPlay);
+  video.addEventListener('playing', onCanPlay);
+
   if (mimeType === 'application/x-mpegURL' && Hls.isSupported()) {
     hlsInstance = new Hls(HLS_CONFIG);
     hlsInstance.loadSource(url);
@@ -396,9 +418,11 @@ function loadPlayer(url, title, type) {
       });
     });
     hlsInstance.on(Hls.Events.ERROR, (e, data) => {
-      if (data.fatal) anTrack('error', { message: data.type + ': ' + data.details, url });
+      if (data.fatal) { anTrack('error', { message: data.type + ': ' + data.details, url }); hideLoader(); }
     });
+    hlsInstance.on(Hls.Events.LEVEL_LOADED, () => hideLoader());
   } else {
+    video.onerror = function() { hideLoader(); };
     video.src = url;
     video.load();
     player = new Plyr(video, {
@@ -408,6 +432,41 @@ function loadPlayer(url, title, type) {
   }
 
   preloadRemaining(url);
+}
+
+async function pingStream(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(function() { controller.abort(); }, timeoutMs || 8000);
+  const start = performance.now();
+  try {
+    const res = await fetch(url, { method: 'GET', headers: { 'Range': 'bytes=0-0' }, signal: controller.signal });
+    clearTimeout(timer);
+    if (res.ok || res.status === 206) {
+      return { url, time: performance.now() - start, alive: true };
+    }
+    return { url, time: Infinity, alive: false };
+  } catch (e) {
+    clearTimeout(timer);
+    return { url, time: Infinity, alive: false };
+  }
+}
+
+async function selectFastestStream() {
+  if (allStreams.length === 0) return null;
+  const tests = allStreams.map(function(s) {
+    return pingStream(s.proxyUrl || s.url, 8000);
+  });
+  appendTestLog('info', '⏱️ Ping-testing <strong>' + allStreams.length + '</strong> stream(s) to find the fastest...');
+  const results = await Promise.all(tests);
+  const alive = results.filter(function(r) { return r.alive; }).sort(function(a, b) { return a.time - b.time; });
+  if (alive.length === 0) {
+    appendTestLog('warn', '⚠️ No responsive streams found — falling back to first result');
+    return allStreams[0];
+  }
+  const best = alive[0];
+  const chosen = allStreams.find(function(s) { return (s.proxyUrl || s.url) === best.url; });
+  appendTestLog('success', '⚡ Selected fastest stream — <strong>' + (chosen ? chosen.quality || 'Auto' : '?') + '</strong> (' + Math.round(best.time) + 'ms)' + (chosen ? ' from <strong>' + chosen._providerName + '</strong>' : ''));
+  return chosen || allStreams[0];
 }
 
 function renderSourceSelector() {
@@ -870,12 +929,13 @@ function startTest() {
         }
       }
       renderSourceSelector();
-      // Auto-play the first stream
-      const first = allStreams[0];
-      if (first) {
-        const encodedUrl = encodeURIComponent(first.proxyUrl || first.url);
-        playStream(encodedUrl, first.name || 'Stream', first.quality || 'Auto', first.type || '');
-      }
+      // Ping-test all streams and play the fastest responsive one
+      selectFastestStream().then(function(best) {
+        if (best) {
+          const encodedUrl = encodeURIComponent(best.proxyUrl || best.url);
+          playStream(encodedUrl, best.name || 'Stream', best.quality || 'Auto', best.type || '');
+        }
+      });
     } else {
       appendTestLog('warn', '💡 No streams loaded — source selector will not appear');
     }
