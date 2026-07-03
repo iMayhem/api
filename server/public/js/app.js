@@ -657,6 +657,36 @@ function closeAllMovePopups() {
   document.querySelectorAll('.move-popup.open').forEach(function(p) { p.classList.remove('open'); });
 }
 
+async function exportProviderConfig() {
+  const res = await api('/api/providers/export');
+  if (!res || !res.providers) return;
+  const blob = new Blob([JSON.stringify(res.providers, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'provider-config.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function importProviderConfig(input) {
+  const file = input.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const providers = JSON.parse(text);
+    const res = await api('/api/providers/import', { method: 'POST', body: JSON.stringify({ providers }) });
+    if (res && res.ok) {
+      loadProvidersView();
+      alert('✅ Provider config imported successfully');
+    } else {
+      alert('❌ Import failed');
+    }
+  } catch (e) {
+    alert('❌ Invalid JSON file: ' + e.message);
+  }
+  input.value = '';
+}
+
 async function loadProvidersView() {
   providers = await api('/api/providers');
   const container = document.getElementById('providerList');
@@ -676,6 +706,10 @@ async function loadProvidersView() {
       <button class="btn-primary" onclick="toggleAllProviders(true)">✅ Enable All</button>
       <button class="btn-secondary" onclick="toggleAllProviders(false)">❌ Disable All</button>
       <span style="margin-left:12px;font-size:12px;color:var(--text2)">${Object.values(providers).filter(p => p.enabled).length}/${Object.keys(providers).length} enabled</span>
+      <span style="margin-left:auto"></span>
+      <button class="btn-secondary" onclick="exportProviderConfig()" title="Download provider config JSON">📥 Export</button>
+      <button class="btn-secondary" onclick="document.getElementById('importConfigInput').click()" title="Import provider config from JSON file">📤 Import</button>
+      <input type="file" id="importConfigInput" accept=".json" style="display:none" onchange="importProviderConfig(this)">
     </div>`;
   for (const [id, p] of providerOrder) {
     html += `

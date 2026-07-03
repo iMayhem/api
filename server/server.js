@@ -183,6 +183,26 @@ app.post('/api/providers/:id/servers', (req, res) => {
   res.json({ id, disabledServers: config.providers[id].disabledServers });
 });
 
+// Export provider config
+app.get('/api/providers/export', (req, res) => {
+  res.json({ providers: config.providers });
+});
+
+// Import provider config
+app.post('/api/providers/import', (req, res) => {
+  const { providers: imported } = req.body;
+  if (!imported || typeof imported !== 'object') return res.status(400).json({ error: 'Missing providers object' });
+  for (const [id, p] of Object.entries(imported)) {
+    if (config.providers[id]) {
+      if (typeof p.enabled === 'boolean') config.providers[id].enabled = p.enabled;
+      if (typeof p.priority === 'number') config.providers[id].priority = p.priority;
+      if (Array.isArray(p.disabledServers)) config.providers[id].disabledServers = p.disabledServers;
+    }
+  }
+  saveConfig();
+  res.json({ ok: true });
+});
+
 // Search endpoint
 app.get('/api/search', async (req, res) => {
   const { q: query, type = 'movie', season, episode } = req.query;
