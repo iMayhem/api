@@ -243,13 +243,10 @@ app.get('/api/search', async (req, res) => {
   const results = [];
   const errors = [];
 
-  const timeoutMs = config.globalTimeout || 12000;
   await Promise.allSettled(enabledProviders.map(async ([id, pConfig]) => {
     try {
       const mod = providers[id];
-      const streamPromise = mod.getStreams(query, type, season || null, episode || null);
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeoutMs));
-      const streams = await Promise.race([streamPromise, timeoutPromise]);
+      const streams = await mod.getStreams(query, type, season || null, episode || null);
       if (streams && streams.length > 0) {
         const filtered = filterStreams(streams, id);
         if (filtered.length > 0) {
@@ -322,7 +319,6 @@ app.get('/api/search/stream', async (req, res) => {
   const enabledProviders = getEnabledProvidersSorted();
   const results = [];
   const errors = [];
-  const timeoutMs = config.globalTimeout || 12000;
   const CONCURRENCY = 6;
 
   emit('start', { total: enabledProviders.length });
@@ -333,9 +329,7 @@ app.get('/api/search/stream', async (req, res) => {
     emit('provider-start', { provider: id, name });
     try {
       const mod = providers[id];
-      const streamPromise = mod.getStreams(query, type, season || null, episode || null);
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeoutMs));
-      const streams = await Promise.race([streamPromise, timeoutPromise]);
+      const streams = await mod.getStreams(query, type, season || null, episode || null);
       if (cancelled) return;
       if (streams && streams.length > 0) {
         const filtered = filterStreams(streams, id);
@@ -422,10 +416,7 @@ app.get('/api/providers/:id/discover', async (req, res) => {
   if (!providers[id]) return res.status(404).json({ error: 'Provider not found' });
   try {
     const mod = providers[id];
-    const timeoutMs = config.globalTimeout || 12000;
-    const streamPromise = mod.getStreams(q, type, null, null);
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 15000));
-    const streams = await Promise.race([streamPromise, timeoutPromise]);
+    const streams = await mod.getStreams(q, type, null, null);
     const servers = extractStreamServers(streams || []);
     res.json({ provider: id, servers, count: (streams || []).length });
   } catch (e) {

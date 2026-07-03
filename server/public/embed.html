@@ -372,9 +372,55 @@ body { background: #000; color: #fff; font-family: system-ui, -apple-system, Bli
     }
   }
 
+  // ── SSE search helper ──
+  function searchSSE(type, s, e) {
+    return new Promise(function(resolve) {
+      var url = '/api/search/stream?q=' + encodeURIComponent(tmdb) + '&type=' + encodeURIComponent(type);
+      if (s) url += '&season=' + encodeURIComponent(s);
+      if (e) url += '&episode=' + encodeURIComponent(e);
+      var result = { totalStreams: 0, results: [] };
+      var totalProviders = 0;
+      var doneProviders = 0;
+      var lastProvider = '';
+      var hasStream = false;
+
+      var es = new EventSource(url);
+      var timeout = setTimeout(function() { if (es) { es.close(); resolve(result); } }, 30000);
+
+      es.addEventListener('start', function(ev) {
+        var d = JSON.parse(ev.data);
+        totalProviders = d.total || 0;
+        if (totalProviders > 0) setStatus('Finding streams...', 'Searching ' + totalProviders + ' sources');
+      });
+      es.addEventListener('provider-start', function(ev) {
+        var d = JSON.parse(ev.data);
+        lastProvider = d.name || d.provider;
+        setStatus('Checking ' + lastProvider + '...', doneProviders + '/' + totalProviders + ' sources checked');
+      });
+      es.addEventListener('stream', function() { hasStream = true; });
+      es.addEventListener('provider-done', function(ev) {
+        doneProviders++;
+        setStatus(lastProvider ? 'Checking ' + lastProvider + '...' : 'Finding streams...', doneProviders + '/' + totalProviders + ' sources checked');
+      });
+      es.addEventListener('provider-empty', function() { doneProviders++; });
+      es.addEventListener('provider-error', function() { doneProviders++; });
+      es.addEventListener('done', function(ev) {
+        clearTimeout(timeout); es.close();
+        var d = JSON.parse(ev.data);
+        result.totalStreams = d.totalStreams || 0;
+        result.results = d.results || [];
+        resolve(result);
+      });
+      es.addEventListener('error', function() {
+        clearTimeout(timeout); if (es) es.close();
+        resolve(result);
+      });
+    });
+  }
+
   // ── Main ──
   if (tmdb) {
-    setStatus('Finding streams...', 'Searching available sources for this title');
+    setStatus('Finding streams...', 'Searching available sources');
 
     function handleResults(data) {
       if (data && data.totalStreams > 0) {
@@ -393,21 +439,15 @@ body { background: #000; color: #fff; font-family: system-ui, -apple-system, Bli
     }
 
     if (params.get('type')) {
-      // Single type search
-      var tUrl = '/api/search?q=' + encodeURIComponent(tmdb) + '&type=' + encodeURIComponent(mediaType);
-      if (season) tUrl += '&season=' + encodeURIComponent(season);
-      if (episode) tUrl += '&episode=' + encodeURIComponent(episode);
-      fetch(tUrl).then(function(r) { return r.ok ? r.json() : null; }).then(function(data) { handleResults(data); startPlayback(); }).catch(function() { startPlayback(); });
+      searchSSE(mediaType, season, episode).then(function(data) { handleResults(data); startPlayback(); });
     } else {
-      // Parallel movie + TV search — whichever responds first with streams
-      var movieUrl = '/api/search?q=' + encodeURIComponent(tmdb) + '&type=movie';
-      var tvUrl = '/api/search?q=' + encodeURIComponent(tmdb) + '&type=tv&season=' + encodeURIComponent(season || '1') + '&episode=' + encodeURIComponent(episode || '1');
-      var movieDone = false, tvDone = false;
-      function checkBoth() {
-        if (movieDone && tvDone) startPlayback();
-      }
-      fetch(movieUrl).then(function(r) { return r.ok ? r.json() : null; }).then(function(data) { handleResults(data); movieDone = true; checkBoth(); }).catch(function() { movieDone = true; checkBoth(); });
-      fetch(tvUrl).then(function(r) { return r.ok ? r.json() : null; }).then(function(data) { handleResults(data); tvDone = true; checkBoth(); }).catch(function() { tvDone = true; checkBoth(); });
+      Promise.all([
+        searchSSE('movie', '', ''),
+        searchSSE('tv', season || '1', episode || '1')
+      ]).then(function(results) {
+        results.forEach(handleResults);
+        startPlayback();
+      });
     }
     return;
   }
