@@ -9,6 +9,7 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
 const analytics = require('./analytics');
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
+const USER_PROVIDERS_PATH = path.join(__dirname, 'providers.json');
 const PROVIDERS_DIR = path.join(__dirname, '..', 'deobfuscated');
 const MANIFEST_PATH = path.join(__dirname, '..', 'manifest.json');
 
@@ -23,15 +24,36 @@ function generateStreamId() {
 }
 
 function loadConfig() {
+  let cfg;
   try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   } catch {
-    return { port: 3000, tmdbApiKey: '', autoplay: true, introSkip: false, proxy: { enabled: false }, globalTimeout: 20000, maxResultsPerProvider: 20, providers: {}, qualityFilter: { '4k': true, '1080': true, '720': true, 'sd': true, 'unknown': true } };
+    cfg = { port: 3000, tmdbApiKey: '', autoplay: true, introSkip: false, proxy: { enabled: false }, globalTimeout: 20000, maxResultsPerProvider: 20, providers: {}, qualityFilter: { '4k': true, '1080': true, '720': true, 'sd': true, 'unknown': true } };
   }
+  // Merge user's provider overrides from gitignored file
+  try {
+    const user = JSON.parse(fs.readFileSync(USER_PROVIDERS_PATH, 'utf8'));
+    if (user && typeof user === 'object') {
+      for (const [id, p] of Object.entries(user)) {
+        if (cfg.providers[id]) {
+          if (typeof p.enabled === 'boolean') cfg.providers[id].enabled = p.enabled;
+          if (typeof p.priority === 'number') cfg.providers[id].priority = p.priority;
+          if (Array.isArray(p.disabledServers)) cfg.providers[id].disabledServers = p.disabledServers;
+        }
+      }
+    }
+  } catch {}
+  return cfg;
 }
 
 function saveConfig() {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  // Persist provider config separately so git pull never overwrites user's settings
+  const providersOnly = {};
+  for (const [id, p] of Object.entries(config.providers || {})) {
+    providersOnly[id] = { enabled: p.enabled, priority: p.priority, disabledServers: p.disabledServers || [] };
+  }
+  fs.writeFileSync(USER_PROVIDERS_PATH, JSON.stringify(providersOnly, null, 2));
 }
 
 function initProviderConfig() {
@@ -181,26 +203,6 @@ app.post('/api/providers/:id/servers', (req, res) => {
   config.providers[id].disabledServers = disabledServers || [];
   saveConfig();
   res.json({ id, disabledServers: config.providers[id].disabledServers });
-});
-
-// Export provider config
-app.get('/api/providers/export', (req, res) => {
-  res.json({ providers: config.providers });
-});
-
-// Import provider config
-app.post('/api/providers/import', (req, res) => {
-  const { providers: imported } = req.body;
-  if (!imported || typeof imported !== 'object') return res.status(400).json({ error: 'Missing providers object' });
-  for (const [id, p] of Object.entries(imported)) {
-    if (config.providers[id]) {
-      if (typeof p.enabled === 'boolean') config.providers[id].enabled = p.enabled;
-      if (typeof p.priority === 'number') config.providers[id].priority = p.priority;
-      if (Array.isArray(p.disabledServers)) config.providers[id].disabledServers = p.disabledServers;
-    }
-  }
-  saveConfig();
-  res.json({ ok: true });
 });
 
 // Search endpoint
