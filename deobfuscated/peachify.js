@@ -16043,6 +16043,8 @@ function fetchFromServer(_0x444c40, _0x1bf881, _0x15ba46, _0x434a64, _0x39f1cf, 
     var _0x4f687b = _0x444c40.base + "/" + _0x444c40.path + "/" + _0x5f23ec + "/" + _0x1bf881;
     if ((_0x15ba46 === "tv" || _0x15ba46 === "series") && _0x434a64 != null && _0x39f1cf != null) {
       _0x4f687b += "/" + _0x434a64 + "/" + _0x39f1cf;
+    } else if (_0x15ba46 === "tv" || _0x15ba46 === "series") {
+      _0x4f687b += "/1/1";
     }
     console.log("[" + PROVIDER_NAME + "] " + _0x444c40.label + ": " + _0x4f687b.substring(0, 100));
     var _0x4ff8cc = getRequestHeaders(_0x2f3b78);
