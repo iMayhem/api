@@ -1189,3 +1189,16 @@ window.onload = () => {
   const saved = localStorage.getItem('activeView');
   if (saved && saved !== 'search') switchView(saved);
 };
+
+document.addEventListener('keydown', function(e) {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+  const video = document.getElementById('plyrVideo');
+  if (!video || !video.duration) return;
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault();
+    video.currentTime = Math.max(0, video.currentTime - 10);
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault();
+    video.currentTime = Math.min(video.duration, video.currentTime + 10);
+  }
+});

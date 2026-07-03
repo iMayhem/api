@@ -1,9 +1,10 @@
 // Shared player configuration between main app and embed
 window.PLAYER_CONFIG = {
   plyr: {
-    controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
+    controls: ['play-large', 'play', 'skip-back', 'progress', 'current-time', 'duration', 'mute', 'skip-forward', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
     settings: ['quality', 'speed'],
     autoplay: true,
+    seekTime: 10,
   },
   hls: {
     maxBufferLength: 300,
