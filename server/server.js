@@ -30,6 +30,7 @@ function loadConfig() {
   } catch {
     cfg = { port: 3000, tmdbApiKey: '', autoplay: true, introSkip: false, proxy: { enabled: false }, globalTimeout: 20000, maxResultsPerProvider: 20, providers: {}, qualityFilter: { '4k': true, '1080': true, '720': true, 'sd': true, 'unknown': true } };
   }
+  if (!cfg.providers) cfg.providers = {};
   // Merge user's provider overrides from gitignored file
   try {
     const user = JSON.parse(fs.readFileSync(USER_PROVIDERS_PATH, 'utf8'));
@@ -39,6 +40,9 @@ function loadConfig() {
           if (typeof p.enabled === 'boolean') cfg.providers[id].enabled = p.enabled;
           if (typeof p.priority === 'number') cfg.providers[id].priority = p.priority;
           if (Array.isArray(p.disabledServers)) cfg.providers[id].disabledServers = p.disabledServers;
+        } else {
+          // Provider exists in user file but not in defaults — add it
+          cfg.providers[id] = { enabled: p.enabled !== false, priority: p.priority || Object.keys(cfg.providers).length + 1, disabledServers: p.disabledServers || [] };
         }
       }
     }
@@ -47,7 +51,10 @@ function loadConfig() {
 }
 
 function saveConfig() {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  // Write non-provider settings to config.json (keep it clean for git)
+  const cfgClean = { ...config };
+  delete cfgClean.providers;
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfgClean, null, 2));
   // Persist provider config separately so git pull never overwrites user's settings
   const providersOnly = {};
   for (const [id, p] of Object.entries(config.providers || {})) {
