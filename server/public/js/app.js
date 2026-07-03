@@ -398,10 +398,6 @@ function closeAllHlsDropdowns() {
   document.querySelectorAll('.hls-dropdown.open').forEach(function(d) { d.classList.remove('open'); });
 }
 
-function markStreamLoaded() {
-  document.getElementById('playerContainer').classList.add('stream-loaded');
-}
-
 const PLYR_CONFIG = {
   controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
   settings: ['quality', 'speed'],
@@ -416,6 +412,7 @@ function initPlyr() {
 function loadPlayer(url, title, type) {
   const video = document.getElementById('plyrVideo');
 
+  // Destroy old HLS if switching
   if (hlsInstance) {
     hlsInstance.destroy();
     hlsInstance = null;
@@ -437,7 +434,7 @@ function loadPlayer(url, title, type) {
   video.addEventListener('playing', onReady);
 
   if (mimeType === 'application/x-mpegURL' && Hls.isSupported()) {
-    if (player) { player.destroy(); player = null; }
+    // Keep Plyr alive, just swap HLS source underneath
     video.removeAttribute('src');
     video.innerHTML = '';
     video.load();
@@ -450,7 +447,9 @@ function loadPlayer(url, title, type) {
       currentHlsLevel = hlsInstance.currentLevel;
       currentHlsAudio = hlsInstance.audioTrack;
       renderHlsControls();
-      player = new Plyr(video, PLYR_CONFIG);
+      if (!player) {
+        player = new Plyr(video, PLYR_CONFIG);
+      }
     });
     hlsInstance.on(Hls.Events.ERROR, (e, data) => {
       if (data.fatal) { anTrack('error', { message: data.type + ': ' + data.details, url }); markStreamLoaded(); }
