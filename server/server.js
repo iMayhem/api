@@ -13,6 +13,8 @@ const USER_PROVIDERS_PATH = path.join(__dirname, 'providers.json');
 const PROVIDERS_DIR = path.join(__dirname, '..', 'deobfuscated');
 const MANIFEST_PATH = path.join(__dirname, '..', 'manifest.json');
 
+const PORT = parseInt(process.env.PORT, 10) || null;
+
 let config = loadConfig();
 let providers = {};
 let providerMeta = {};
@@ -163,6 +165,175 @@ function getEnabledProvidersSorted() {
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// ============ movie-web SSE Provider API (before static to ensure priority) ============
+
+// Convert a scraper stream to movie-web Stream format
+function scraperStreamToMwStream(stream, sourceId) {
+  const flags = [];
+  if (stream.headers && Object.keys(stream.headers).length > 0) {
+    flags.push('ip-locked');
+  } else {
+    flags.push('cors-allowed');
+  }
+  const isHls = stream.type === 'm3u8' || (stream.url && stream.url.includes('.m3u8'));
+  if (isHls) {
+    return {
+      type: 'hls',
+      playlist: stream.url,
+      id: sourceId + '-' + Date.now(),
+      flags,
+      captions: [],
+      headers: stream.headers || undefined,
+    };
+  }
+  const quality = stream.quality || 'unknown';
+  const qualities = {};
+  qualities[quality] = { type: 'mp4', url: stream.url };
+  return {
+    type: 'file',
+    id: sourceId + '-' + Date.now(),
+    flags,
+    captions: [],
+    qualities,
+    headers: stream.headers || undefined,
+  };
+}
+
+// GET /metadata - Return all providers in MetaOutput format
+app.get('/metadata', (req, res) => {
+  const result = [];
+  const sorted = Object.entries(providerMeta)
+    .sort((a, b) => (config.providers[a[0]]?.priority || 999) - (config.providers[b[0]]?.priority || 999));
+  for (const [id, meta] of sorted) {
+    const pConfig = config.providers[id];
+    if (!pConfig || pConfig.enabled === false) continue;
+    result.push([{
+      id,
+      name: meta.name || id,
+      type: 'source',
+      rank: pConfig.priority || 999,
+      flags: [],
+      mediaTypes: meta.supportedTypes || ['movie', 'tv'],
+    }]);
+  }
+  res.json(result);
+});
+
+function sendSSE(req, res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.flushHeaders();
+  let cancelled = false;
+  req.on('close', () => { cancelled = true; });
+  function emit(event, data) {
+    if (cancelled) return;
+    try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch (e) {}
+  }
+  return { emit, cancelled: () => cancelled };
+}
+
+// GET /scrape - SSE endpoint that runs all scrapers (movie-web runAll)
+app.get('/scrape', async (req, res) => {
+  const { type, tmdbId, season, episode, seasonNumber, episodeNumber } = req.query;
+  if (!tmdbId) return res.status(400).json({ error: 'tmdbId required' });
+  const sse = sendSSE(req, res);
+  if (sse.cancelled()) return;
+
+  const enabledProviders = getEnabledProvidersSorted();
+  const sourceIds = enabledProviders.map(([id]) => id);
+
+  sse.emit('init', { sourceIds });
+
+  for (const [id, pConfig] of enabledProviders) {
+    if (sse.cancelled()) return;
+    try {
+      sse.emit('start', id);
+      const mod = providers[id];
+      const mediaType = type || 'movie';
+      const sNum = season || seasonNumber || null;
+      const eNum = episode || episodeNumber || null;
+      const streams = await mod.getStreams(tmdbId, mediaType, sNum, eNum);
+      const filtered = filterStreams(streams || [], id);
+
+      if (filtered && filtered.length > 0) {
+        for (let i = 0; i < filtered.length; i++) {
+          const stream = filtered[i];
+          sse.emit('update', { id, percentage: Math.round(((i + 1) / filtered.length) * 100), status: 'success' });
+          const mwStream = scraperStreamToMwStream(stream, id);
+          const output = { sourceId: id, stream: mwStream };
+          sse.emit('completed', output);
+          res.end();
+          return;
+        }
+      } else {
+        sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streams returned' });
+      }
+    } catch (e) {
+      sse.emit('update', { id, percentage: 100, status: 'failure', error: e.message });
+    }
+  }
+
+  if (!sse.cancelled()) {
+    sse.emit('noOutput', '');
+  }
+  res.end();
+});
+
+// GET /scrape/source - SSE endpoint for a single source
+app.get('/scrape/source', async (req, res) => {
+  const { id, type, tmdbId, season, episode, seasonNumber, episodeNumber } = req.query;
+  if (!id || !tmdbId) return res.status(400).json({ error: 'id and tmdbId required' });
+  const sse = sendSSE(req, res);
+  if (sse.cancelled()) return;
+
+  const mod = providers[id];
+  if (!mod) {
+    sse.emit('error', { name: 'NotFoundError', message: `Source ${id} not found` });
+    res.end();
+    return;
+  }
+
+  try {
+    sse.emit('start', id);
+    const mediaType = type || 'movie';
+    const sNum = season || seasonNumber || null;
+    const eNum = episode || episodeNumber || null;
+    const streams = await mod.getStreams(tmdbId, mediaType, sNum, eNum);
+    const filtered = filterStreams(streams || [], id);
+
+    if (filtered && filtered.length > 0) {
+      const mwStreams = filtered.map((s, i) => scraperStreamToMwStream(s, id + '-' + i));
+      sse.emit('update', { id, percentage: 100, status: 'success' });
+      const output = { embeds: [], stream: mwStreams };
+      sse.emit('completed', output);
+    } else {
+      sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streams returned' });
+      sse.emit('noOutput', '');
+    }
+  } catch (e) {
+    sse.emit('update', { id, percentage: 100, status: 'failure', error: e.message });
+    sse.emit('noOutput', '');
+  }
+
+  res.end();
+});
+
+// GET /scrape/embed - SSE endpoint for a single embed (not supported by these scrapers)
+app.get('/scrape/embed', async (req, res) => {
+  const { id, url } = req.query;
+  const sse = sendSSE(req, res);
+  if (sse.cancelled()) return;
+
+  sse.emit('start', id || 'embed');
+  sse.emit('update', { id: id || 'embed', percentage: 100, status: 'notfound', reason: 'Embed scraping not supported' });
+  sse.emit('noOutput', '');
+  res.end();
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -561,7 +732,7 @@ app.get('/docs', (req, res) => {
 
 // SPA fallback - serve index.html for non-matching routes
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api/') || req.path.startsWith('/proxy') || req.path.startsWith('/docs') || req.path.startsWith('/css/') || req.path.startsWith('/js/')) return next();
+  if (req.path.startsWith('/api/') || req.path.startsWith('/proxy') || req.path.startsWith('/docs') || req.path.startsWith('/css/') || req.path.startsWith('/js/') || req.path.startsWith('/metadata') || req.path.startsWith('/scrape')) return next();
   res.sendFile(path.join(__dirname, 'public', 'index.html'), err => { if (err) next(); });
 });
 
@@ -569,16 +740,17 @@ async function start() {
   await loadProviders();
   initProviderConfig();
   analytics.init();
+  const port = PORT || config.port;
   console.log(`Loaded ${Object.keys(providers).length} providers`);
-  app.listen(config.port, '0.0.0.0', () => {
-    console.log(`Server running on http://0.0.0.0:${config.port}`);
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`Server running on http://0.0.0.0:${port}`);
     console.log(`  Proxy: /proxy  |  Docs: /docs`);
     const os = require('os');
     const nets = os.networkInterfaces();
     for (const name of Object.keys(nets)) {
       for (const net of nets[name]) {
         if (net.family === 'IPv4' && !net.internal) {
-          console.log(`  Network: http://${net.address}:${config.port}`);
+          console.log(`  Network: http://${net.address}:${port}`);
         }
       }
     }

@@ -1,0 +1,14 @@
+{
+  "totals": {
+    "pageViews": 0,
+    "plays": 0,
+    "errors": 0,
+    "qualityChanges": 0,
+    "audioChanges": 0,
+    "uniqueIps": [],
+    "watchTimeMs": 0
+  },
+  "events": [],
+  "sessions": {},
+  "realtimeSessions": {}
+}

@@ -201,7 +201,7 @@
       "contentLanguage": ["en"]
     },
     {
-      "id": "Cineby",
+      "id": "cineby",
       "name": "Cineby",
       "description": "Multi-server movie and TV streaming — 4K/1080p/720p from Videasy network without subtitles",
       "version": "1.9.2",
@@ -271,7 +271,7 @@
       "contentLanguage": ["en"]
     },
     {
-      "id": "dahmermovies-tv",
+      "id": "dahmermovies-4k",
       "name": "Dahmermovies-TV",
       "description": "Only works on Android TV",
       "version": "1.0.1",
