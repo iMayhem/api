@@ -25,6 +25,28 @@ function generateStreamId() {
   return (++streamIdCounter).toString(36) + crypto.randomBytes(4).toString('hex');
 }
 
+function toProxyUrl(url, headers, type) {
+  if (!config.streamProxy) return url;
+  const storeId = generateStreamId();
+  streamStore.set(storeId, { ts: Date.now(), url, headers: headers || {}, type: type || 'mp4' });
+  return `/proxy?id=${storeId}`;
+}
+
+function makeStreamUrlsAbsolute(mwStream, host) {
+  if (!host) return;
+  const base = `https://${host}`;
+  if (mwStream.playlist && mwStream.playlist.startsWith('/')) {
+    mwStream.playlist = base + mwStream.playlist;
+  }
+  if (mwStream.qualities) {
+    for (const entry of Object.values(mwStream.qualities)) {
+      if (entry.url && entry.url.startsWith('/')) {
+        entry.url = base + entry.url;
+      }
+    }
+  }
+}
+
 // Stream store auto-cleanup every 5 minutes
 const STREAM_TTL = 5 * 60 * 1000;
 setInterval(function() {
@@ -39,7 +61,7 @@ function loadConfig() {
   try {
     cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   } catch {
-    cfg = { port: 3000, tmdbApiKey: '', autoplay: true, introSkip: false, proxy: { enabled: false }, globalTimeout: 12000, maxResultsPerProvider: 20, providers: {}, qualityFilter: { '4k': true, '1080': true, '720': true, 'sd': true, 'unknown': true } };
+    cfg = { port: 3000, tmdbApiKey: '', autoplay: true, introSkip: false, streamProxy: false, proxy: { enabled: false }, globalTimeout: 12000, maxResultsPerProvider: 20, providers: {}, qualityFilter: { '4k': true, '1080': true, '720': true, 'sd': true, 'unknown': true } };
   }
   if (!cfg.providers) cfg.providers = {};
   // Merge user's provider overrides from gitignored file
@@ -208,14 +230,33 @@ app.use(express.json());
 
 // ============ movie-web SSE Provider API (before static to ensure priority) ============
 
+function parseQuality(q) {
+  if (!q) return -1;
+  q = q.toLowerCase().replace(/p$/, '');
+  if (q === 'auto' || q === 'adaptive' || q === 'multi') return -1;
+  const n = parseInt(q);
+  return isNaN(n) ? -1 : n;
+}
+
+function sortStreamsByQuality(streams) {
+  return (streams || []).sort((a, b) => {
+    const aQ = parseQuality(a.quality);
+    const bQ = parseQuality(b.quality);
+    if (aQ !== bQ) return bQ - aQ; // desc
+    // Fall back: check qualities object
+    const aKeys = a.qualities ? Object.keys(a.qualities).map(parseQuality).filter(v => v > 0) : [];
+    const bKeys = b.qualities ? Object.keys(b.qualities).map(parseQuality).filter(v => v > 0) : [];
+    const aBest = aKeys.length ? Math.max(...aKeys) : -1;
+    const bBest = bKeys.length ? Math.max(...bKeys) : -1;
+    return bBest - aBest;
+  });
+}
+
 // Convert a scraper stream to movie-web Stream format
 function scraperStreamToMwStream(stream, sourceId) {
-  const flags = [];
-  if (stream.headers && Object.keys(stream.headers).length > 0) {
-    flags.push('ip-locked');
-  } else {
-    flags.push('cors-allowed');
-  }
+  const hasHeaders = stream.headers && typeof stream.headers === 'object' && Object.keys(stream.headers).length > 0;
+  const flags = config.streamProxy || !hasHeaders ? ['cors-allowed'] : ['ip-locked'];
+  const mwHeaders = config.streamProxy ? undefined : (hasHeaders ? stream.headers : undefined);
 
   // Handle multi-quality streams (object with quality keys)
   if (stream.qualities && typeof stream.qualities === 'object') {
@@ -226,7 +267,7 @@ function scraperStreamToMwStream(stream, sourceId) {
         console.log(`[scraperStreamToMwStream] Skipping non-streamable quality "${q}": ${entry.url.slice(0, 80)}`);
         continue;
       }
-      qualities[q] = { type: entry.type || 'mp4', url: entry.url };
+      qualities[q] = { type: entry.type || 'mp4', url: toProxyUrl(entry.url, stream.headers, entry.type) };
     }
     if (Object.keys(qualities).length === 0) return null; // all qualities filtered
     return {
@@ -235,7 +276,7 @@ function scraperStreamToMwStream(stream, sourceId) {
       flags,
       captions: [],
       qualities,
-      headers: stream.headers || undefined,
+      headers: mwHeaders,
     };
   }
 
@@ -243,11 +284,11 @@ function scraperStreamToMwStream(stream, sourceId) {
   if (isHls) {
     return {
       type: 'hls',
-      playlist: stream.url,
+      playlist: toProxyUrl(stream.url, stream.headers, 'm3u8'),
       id: sourceId + '-' + Date.now(),
       flags,
       captions: [],
-      headers: stream.headers || undefined,
+      headers: mwHeaders,
     };
   }
 
@@ -259,14 +300,14 @@ function scraperStreamToMwStream(stream, sourceId) {
 
   const quality = stream.quality || 'unknown';
   const qualities = {};
-  qualities[quality] = { type: 'mp4', url: stream.url };
+  qualities[quality] = { type: 'mp4', url: toProxyUrl(stream.url, stream.headers, 'mp4') };
   return {
     type: 'file',
     id: sourceId + '-' + Date.now(),
     flags,
     captions: [],
     qualities,
-    headers: stream.headers || undefined,
+    headers: mwHeaders,
   };
 }
 
@@ -343,7 +384,7 @@ app.get('/scrape', async (req, res) => {
       clearInterval(progressTimer);
       if (sse.cancelled()) return;
 
-      const filtered = filterStreams(streams || [], id);
+      const filtered = sortStreamsByQuality(filterStreams(streams || [], id));
 
       if (filtered && filtered.length > 0) {
         let foundValid = false;
@@ -354,6 +395,7 @@ app.get('/scrape', async (req, res) => {
           foundValid = true;
           const pct = Math.round(85 + ((i + 1) / filtered.length) * 15);
           sse.emit('update', { id, percentage: pct, status: 'success' });
+          makeStreamUrlsAbsolute(mwStream, req.headers.host);
           const output = { sourceId: id, stream: mwStream };
           sse.emit('completed', output);
           res.end();
@@ -392,11 +434,23 @@ app.get('/scrape/source', async (req, res) => {
 
   try {
     sse.emit('start', id);
+
+    // Emit realtime progress fill while the scraper works
+    let progress = 0;
+    const progressTimer = setInterval(() => {
+      if (sse.cancelled()) { clearInterval(progressTimer); return; }
+      progress = Math.min(progress + 4, 85);
+      sse.emit('update', { id, percentage: progress, status: 'pending' });
+    }, 400);
+
     const mediaType = type || 'movie';
     const sNum = season || seasonNumber || null;
     const eNum = episode || episodeNumber || null;
     const streams = await mod.getStreams(tmdbId, mediaType, sNum, eNum);
-    const filtered = filterStreams(streams || [], id);
+    clearInterval(progressTimer);
+    if (sse.cancelled()) return;
+
+    const filtered = sortStreamsByQuality(filterStreams(streams || [], id));
 
     if (filtered && filtered.length > 0) {
       const mwStreams = filtered
@@ -404,6 +458,7 @@ app.get('/scrape/source', async (req, res) => {
         .filter(Boolean);
       if (mwStreams.length > 0) {
         sse.emit('update', { id, percentage: 100, status: 'success' });
+        mwStreams.forEach(s => makeStreamUrlsAbsolute(s, req.headers.host));
         const output = { embeds: [], stream: mwStreams };
         sse.emit('completed', output);
       } else {
@@ -614,10 +669,9 @@ app.get('/api/search/stream', async (req, res) => {
             else if (stream.url.includes('.mkv')) stream.type = 'mkv';
             else stream.type = 'mp4';
           }
-          const storeId = generateStreamId();
-          streamStore.set(storeId, { ts: Date.now(), url: stream.url, headers: stream.headers || {}, type: stream.type });
-          stream.proxyUrl = `/proxy?id=${storeId}`;
-          emit('stream', { provider: id, name, quality: stream.quality || 'Auto', url: stream.url, proxyUrl: stream.proxyUrl, type: stream.type, title: stream.title || '' });
+          const proxyUrl = toProxyUrl(stream.url, stream.headers, stream.type);
+          if (proxyUrl !== stream.url) stream.proxyUrl = proxyUrl;
+          emit('stream', { provider: id, name, quality: stream.quality || 'Auto', url: stream.url, proxyUrl: stream.proxyUrl || '', type: stream.type, title: stream.title || '' });
         }
         emit('provider-done', { provider: id, name, count: filtered.length, servers: extractStreamServers(filtered) });
         results.push({ provider: id, providerName: name, priority: pConfig.priority, count: filtered.length, servers: extractStreamServers(filtered), streams: filtered.slice(0, config.maxResultsPerProvider || 20) });
@@ -649,7 +703,7 @@ app.get('/api/settings', (req, res) => {
 
 // Update settings
 app.put('/api/settings', (req, res) => {
-  const { port, tmdbApiKey, globalTimeout, maxResultsPerProvider, proxy, autoplay, introSkip, qualityFilter } = req.body;
+  const { port, tmdbApiKey, globalTimeout, maxResultsPerProvider, proxy, autoplay, introSkip, qualityFilter, streamProxy } = req.body;
   if (port) config.port = port;
   if (tmdbApiKey) config.tmdbApiKey = tmdbApiKey;
   if (globalTimeout) config.globalTimeout = globalTimeout;
@@ -657,6 +711,7 @@ app.put('/api/settings', (req, res) => {
   if (proxy) config.proxy = { ...config.proxy, ...proxy };
   if (typeof autoplay === 'boolean') config.autoplay = autoplay;
   if (typeof introSkip === 'boolean') config.introSkip = introSkip;
+  if (typeof streamProxy === 'boolean') config.streamProxy = streamProxy;
   if (qualityFilter) config.qualityFilter = qualityFilter;
   saveNonProviderSettings();
   res.json(config);
@@ -724,24 +779,70 @@ function decodeB64url(str) {
   return Buffer.from(str, 'base64url').toString();
 }
 
-function rewriteHlsPlaylist(playlist, baseUrl, headers) {
+function rewriteHlsPlaylist(playlist, baseUrl, headers, host) {
   const headerB64 = encodeB64url(JSON.stringify(headers));
+  const prefix = host ? `https://${host}` : '';
+
+  // Reorder master playlist variants by bandwidth descending so highest quality plays first
   const lines = playlist.split('\n');
-  return lines.map(line => {
+  if (playlist.includes('#EXT-X-STREAM-INF:')) {
+    const variants = [];
+    const otherLines = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].startsWith('#EXT-X-STREAM-INF:')) {
+        const urlLine = i + 1 < lines.length ? lines[i + 1] : '';
+        const bwMatch = lines[i].match(/BANDWIDTH=(\d+)/i);
+        variants.push({ bandwidth: bwMatch ? parseInt(bwMatch[1]) : 0, header: lines[i], url: urlLine });
+        i++;
+      } else {
+        otherLines.push(lines[i]);
+      }
+    }
+    if (variants.length > 1) {
+      variants.sort((a, b) => b.bandwidth - a.bandwidth);
+      const reordered = [...otherLines];
+      // Insert sorted variants at the position of the first variant
+      const insertAt = otherLines.length;
+      for (const v of variants) {
+        reordered.push(v.header);
+        reordered.push(v.url);
+      }
+      playlist = reordered.join('\n');
+    }
+  }
+
+  // Rewrite non-comment lines to proxy URLs
+  return playlist.split('\n').map(line => {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) return line;
     try {
       const absoluteUrl = new URL(trimmed, baseUrl).href;
       const urlB64 = encodeB64url(absoluteUrl);
-      return `/proxy?u=${urlB64}&h=${headerB64}`;
+      return `${prefix}/proxy?u=${urlB64}&h=${headerB64}`;
     } catch {
       return line;
     }
   }).join('\n');
 }
 
+function bodyStreamFromReader(reader, firstChunk) {
+  let first = true;
+  return new Readable({
+    read() {
+      if (first) { first = false; this.push(firstChunk); return; }
+      reader.read().then(({ done, value }) => {
+        if (done) { this.push(null); return; }
+        this.push(value);
+      });
+    }
+  });
+}
+
 // Proxy endpoint - supports both ID-based lookup and inline URL+headers
 app.get('/proxy', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+
   const { id, u, h } = req.query;
 
   let targetUrl, targetHeaders, targetType;
@@ -783,23 +884,76 @@ app.get('/proxy', async (req, res) => {
         res.setHeader(key, value);
       }
     }
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
     res.status(response.status);
 
     const contentType = response.headers.get('content-type') || '';
-    const isHlsPlaylist = targetType === 'm3u8' || targetUrl.includes('.m3u8') ||
-      contentType.includes('mpegurl') || contentType.includes('x-mpegurl');
 
-    if (isHlsPlaylist) {
-      const text = await response.text();
-      const baseUrl = new URL(targetUrl);
-      const rewritten = rewriteHlsPlaylist(text, baseUrl, targetHeaders);
-      res.setHeader('Content-Type', contentType || 'application/vnd.apple.mpegurl');
-      res.setHeader('Content-Length', Buffer.byteLength(rewritten));
-      res.end(rewritten);
+    // Detect HLS by peeking at first bytes of body
+    const reader = response.body.getReader();
+    const first = await reader.read();
+    if (first.done) { res.end(); return; }
+
+    const firstHead = Buffer.from(first.value).toString('utf8', 0, Math.min(first.value.length, 30));
+
+    if (firstHead.startsWith('#EXTM3U') && targetUrl) {
+      const allChunks = [first.value];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        allChunks.push(value);
+      }
+      const bodyText = Buffer.concat(allChunks).toString('utf8');
+      try {
+        const baseUrl = new URL(targetUrl);
+        const rewritten = rewriteHlsPlaylist(bodyText, baseUrl, targetHeaders, req.headers.host);
+        res.setHeader('Content-Type', contentType || 'application/vnd.apple.mpegurl');
+        res.setHeader('Content-Length', Buffer.byteLength(rewritten));
+        res.end(rewritten);
+      } catch (e) {
+        console.error('HLS rewrite error:', e.message);
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Length', Buffer.byteLength(bodyText));
+        res.end(bodyText);
+      }
     } else {
-      const nodeStream = Readable.fromWeb(response.body);
+      // Stream the response through — only block if content is clearly non-media (HTML/JSON text)
+      const ct = contentType.toLowerCase();
+      if (ct.includes('html') || ct.includes('json')) {
+        const allChunks = [first.value];
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          allChunks.push(value);
+        }
+        const body = Buffer.concat(allChunks);
+        // Check for mislabeled video (CDNs serve TS/MP4 with text/html Content-Type)
+        const firstBytes = body.slice(0, 16);
+        const isMpegTs = firstBytes.length > 0 && firstBytes[0] === 0x47;
+        const isMp4 = firstBytes.slice(4, 8).toString() === 'ftyp' || firstBytes.slice(0, 4).toString() === 'ftyp';
+        const isWebm = firstBytes.slice(0, 4).toString() === '\x1a\x45\xdf\xa3';
+        if (isMpegTs || isMp4 || isWebm) {
+          const mime = isMpegTs ? 'video/mp2t' : isMp4 ? 'video/mp4' : 'video/webm';
+          res.setHeader('Content-Type', mime);
+          res.setHeader('Content-Length', body.length);
+          res.end(body);
+          return;
+        }
+        // Check if it's actual HTML page content (not mislabeled binary)
+        const textStart = body.toString('utf8', 0, Math.min(body.length, 100)).trim();
+        if (textStart.startsWith('<!') || textStart.startsWith('<html') || textStart.startsWith('<?xml') || textStart.startsWith('{') || textStart.startsWith('[')) {
+          const preview = body.toString('utf8', 0, Math.min(body.length, 300));
+          console.error(`Proxy: non-video content "${ct}" for ${targetUrl}: ${preview}`);
+          if (!res.headersSent) res.status(502).send(`Bad content type: ${ct}`);
+          return;
+        }
+        // Not actual HTML — likely mislabeled binary, pass through
+        res.setHeader('Content-Type', ct);
+        res.setHeader('Content-Length', body.length);
+        res.end(body);
+        return;
+      }
+      // Pass through all other content types (video, image, octet-stream, etc.)
+      const nodeStream = bodyStreamFromReader(reader, first.value);
       req.on('close', () => nodeStream.destroy());
       nodeStream.pipe(res);
     }

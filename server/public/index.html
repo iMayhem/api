@@ -219,12 +219,17 @@
       </div>
       <div class="setting-group">
         <h3>🌐 Proxy</h3>
-        <label><input type="checkbox" id="setProxyEnabled"> Enable Proxy</label>
+        <label><input type="checkbox" id="setProxyEnabled"> Enable Proxy (outbound)</label>
         <label>Type: <select id="setProxyType"><option value="http">HTTP</option><option value="socks5">SOCKS5</option></select></label>
         <label>Host: <input type="text" id="setProxyHost" placeholder="127.0.0.1"></label>
         <label>Port: <input type="number" id="setProxyPort" placeholder="8080"></label>
         <label>Username: <input type="text" id="setProxyUser" placeholder="(optional)"></label>
         <label>Password: <input type="password" id="setProxyPass" placeholder="(optional)"></label>
+      </div>
+      <div class="setting-group">
+        <h3>🛡️ Stream Proxy</h3>
+        <label><input type="checkbox" id="setStreamProxy"> Hide upstream sources (proxy all streams through this server)</label>
+        <p class="hint">When enabled, stream URLs are served through this server instead of directly, hiding the original source URLs from clients.</p>
       </div>
       <div class="setting-group">
         <h3>🎬 Player</h3>

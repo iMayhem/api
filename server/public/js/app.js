@@ -740,6 +740,7 @@ async function loadSettings() {
   document.getElementById('setProxyPort').value = cfg.proxy?.port || '';
   document.getElementById('setProxyUser').value = cfg.proxy?.username || '';
   document.getElementById('setProxyPass').value = cfg.proxy?.password || '';
+  document.getElementById('setStreamProxy').checked = cfg.streamProxy !== false;
   document.getElementById('setAutoplay').checked = cfg.autoplay !== false;
   document.getElementById('setIntroSkip').checked = cfg.introSkip === true;
   loadIndexOpacity();
@@ -768,6 +769,7 @@ async function saveSettings() {
       password: document.getElementById('setProxyPass').value,
     }
   };
+  body.streamProxy = document.getElementById('setStreamProxy').checked;
   body.autoplay = document.getElementById('setAutoplay').checked;
   body.introSkip = document.getElementById('setIntroSkip').checked;
   await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
