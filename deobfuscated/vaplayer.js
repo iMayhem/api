@@ -38,6 +38,7 @@ async function getStreams(id, type, season, episode) {
                 const headers = { Referer: CDN_ORIGIN + "/", Origin: CDN_ORIGIN, "User-Agent": USER_AGENT };
                 const proxyUrl = SV_PROXY + "?u=" + encodeURIComponent(streamUrl) + "&h=" + encodeURIComponent(JSON.stringify(headers));
 
+                // Verify the proxied master is valid and discover quality range
                 const mRes = await fetch(proxyUrl, {
                     headers: { "User-Agent": USER_AGENT },
                     signal: AbortSignal.timeout(10000),
@@ -46,27 +47,24 @@ async function getStreams(id, type, season, episode) {
                 const body = await mRes.text();
                 if (!body.includes("#EXT")) throw new Error("not a playlist");
 
+                // Pick the highest quality for the label
                 const lines = body.split("\n");
-                let found = 0;
+                let bestQuality = "Auto";
                 for (let i = 0; i < lines.length; i++) {
-                    const line = lines[i].trim();
-                    if (line.startsWith("#EXT-X-STREAM-INF")) {
-                        const nextLine = lines[i + 1]?.trim();
-                        if (nextLine && nextLine.startsWith("http")) {
-                            const quality = parseResolution(line);
-                            results.push({
-                                name: "VaPlayer",
-                                title: "VaPlayer [" + quality + "] · HLS",
-                                url: nextLine,
-                                quality: quality,
-                                headers: { "User-Agent": USER_AGENT },
-                            });
-                            found++;
-                        }
+                    if (lines[i].includes("EXT-X-STREAM-INF")) {
+                        bestQuality = parseResolution(lines[i]);
                     }
                 }
 
-                if (!found) throw new Error("no variants");
+                // Return the proxied MASTER playlist URL
+                // HLS.js will detect all quality levels and offer switching
+                results.push({
+                    name: "VaPlayer",
+                    title: "VaPlayer · HLS",
+                    url: proxyUrl,
+                    quality: bestQuality,
+                    headers: { "User-Agent": USER_AGENT },
+                });
             } catch (e) {
                 results.push({
                     name: "VaPlayer",
