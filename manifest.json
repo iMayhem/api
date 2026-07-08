@@ -887,6 +887,48 @@
       "formats": ["mp4", "m3u8"],
       "logo": "",
       "contentLanguage": ["en"]
+    },
+    {
+      "id": "vaplayer",
+      "name": "VaPlayer",
+      "description": "Streams from vaplayer.ru via nextgencloudfabric.com CDN — HLS direct from onlinevisibilitysystem.site",
+      "version": "1.0.0",
+      "author": "opencode",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "deobfuscated/vaplayer.js",
+      "enabled": true,
+      "hasSettings": true,
+      "formats": ["m3u8"],
+      "logo": "",
+      "contentLanguage": ["en"]
+    },
+    {
+      "id": "vidrift",
+      "name": "VidRift",
+      "description": "Streams from vidrift.in — HLS with proxy support via onlinevisibilitysystem.site CDN",
+      "version": "1.0.0",
+      "author": "opencode",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "deobfuscated/vidrift.js",
+      "enabled": true,
+      "hasSettings": true,
+      "formats": ["m3u8"],
+      "logo": "",
+      "contentLanguage": ["en"]
+    },
+    {
+      "id": "streamvault",
+      "name": "StreamVault",
+      "description": "Multi-CDN aggregator (Moonstone, Flint, Zoisite, Peridot) — HLS + MP4 streams via streamvaultsrc.click",
+      "version": "1.0.0",
+      "author": "opencode",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "deobfuscated/streamvault.js",
+      "enabled": true,
+      "hasSettings": true,
+      "formats": ["m3u8", "mp4"],
+      "logo": "",
+      "contentLanguage": ["en"]
     }
   ]
 }

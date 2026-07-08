@@ -75,10 +75,28 @@ function saveNonProviderSettings() {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfgClean, null, 2));
 }
 
+const CLIENT_PROVIDERS = [
+  { id: 'icefy', name: 'icefy', supportedTypes: ['movie', 'tv'] },
+  { id: 'yp-hdbox-1', name: 'yp-hdbox-1', supportedTypes: ['movie', 'tv'] },
+  { id: 'yp-hdbox-2', name: 'yp-hdbox-2', supportedTypes: ['movie', 'tv'] },
+  { id: 'yp-flixhq-1', name: 'yp-flixhq-1', supportedTypes: ['movie', 'tv'] },
+  { id: 'yp-flixhq-2', name: 'yp-flixhq-2', supportedTypes: ['movie', 'tv'] },
+  { id: 'yp-moviebox-1', name: 'yp-moviebox-1', supportedTypes: ['movie', 'tv'] },
+  { id: 'yp-moviebox-2', name: 'yp-moviebox-2', supportedTypes: ['movie', 'tv'] },
+  { id: 'tugaflix', name: 'tugaflix', supportedTypes: ['movie', 'tv'] },
+  { id: 'fsonline', name: 'fsonline', supportedTypes: ['movie', 'tv'] },
+  { id: 'animeflv', name: 'animeflv', supportedTypes: ['tv'] },
+  { id: 'cuevana3', name: 'cuevana3', supportedTypes: ['movie', 'tv'] },
+  { id: 'fullhdfilmizle', name: 'fullhdfilmizle', supportedTypes: ['movie', 'tv'] }
+];
+
 function initProviderConfig() {
   const files = fs.readdirSync(PROVIDERS_DIR).filter(f => f.endsWith('.js'));
-  for (const file of files) {
-    const id = path.basename(file, '.js');
+  const allIds = [
+    ...files.map(f => path.basename(f, '.js')),
+    ...CLIENT_PROVIDERS.map(p => p.id)
+  ];
+  for (const id of allIds) {
     if (!config.providers[id]) {
       config.providers[id] = { enabled: true, priority: Object.keys(config.providers).length + 1, disabledServers: [] };
     }
@@ -98,13 +116,21 @@ async function loadProviders() {
         providers[id] = mod;
         providerMeta[id] = {
           name: mod.name || id,
-          file: file,
           supportedTypes: mod.supportedTypes || ['movie', 'tv'],
         };
       }
     } catch (e) {
-      console.error(`Failed to load provider ${id}: ${e.message}`);
+      console.error(`Failed to load provider ${id}:`, e);
     }
+  }
+
+  for (const cp of CLIENT_PROVIDERS) {
+    providerMeta[cp.id] = {
+      name: cp.name,
+      supportedTypes: cp.supportedTypes,
+      file: 'Client-side Scraper',
+      isClientSide: true
+    };
   }
 }
 
@@ -150,10 +176,24 @@ function extractStreamServers(streams) {
   return [...servers].sort();
 }
 
+const NON_STREAMABLE_EXTS = /\.(zip|rar|7z|tar|gz|mkv|avi|mov|wmv|flv|iso|torrent)(\?|$)/i;
+
+function isStreamableUrl(url) {
+  if (!url) return false;
+  // Reject download archive extensions
+  if (NON_STREAMABLE_EXTS.test(url.split('?')[0])) return false;
+  return true;
+}
+
 function filterStreams(streams, providerId) {
   const pConfig = config.providers[providerId];
-  if (!pConfig || !pConfig.disabledServers || pConfig.disabledServers.length === 0) return streams;
-  return streams.filter(s => !pConfig.disabledServers.some(d => s.name && s.name.includes(d)));
+  let filtered = streams;
+  if (pConfig && pConfig.disabledServers && pConfig.disabledServers.length > 0) {
+    filtered = filtered.filter(s => !pConfig.disabledServers.some(d => s.name && s.name.includes(d)));
+  }
+  // Remove streams whose URL is a non-streamable download archive
+  filtered = filtered.filter(s => isStreamableUrl(s.url));
+  return filtered;
 }
 
 function getEnabledProvidersSorted() {
@@ -176,6 +216,29 @@ function scraperStreamToMwStream(stream, sourceId) {
   } else {
     flags.push('cors-allowed');
   }
+
+  // Handle multi-quality streams (object with quality keys)
+  if (stream.qualities && typeof stream.qualities === 'object') {
+    const qualities = {};
+    for (const [q, entry] of Object.entries(stream.qualities)) {
+      if (!entry || !entry.url) continue;
+      if (!isStreamableUrl(entry.url)) {
+        console.log(`[scraperStreamToMwStream] Skipping non-streamable quality "${q}": ${entry.url.slice(0, 80)}`);
+        continue;
+      }
+      qualities[q] = { type: entry.type || 'mp4', url: entry.url };
+    }
+    if (Object.keys(qualities).length === 0) return null; // all qualities filtered
+    return {
+      type: 'file',
+      id: sourceId + '-' + Date.now(),
+      flags,
+      captions: [],
+      qualities,
+      headers: stream.headers || undefined,
+    };
+  }
+
   const isHls = stream.type === 'm3u8' || (stream.url && stream.url.includes('.m3u8'));
   if (isHls) {
     return {
@@ -187,6 +250,13 @@ function scraperStreamToMwStream(stream, sourceId) {
       headers: stream.headers || undefined,
     };
   }
+
+  // Single URL stream — reject non-streamable
+  if (!isStreamableUrl(stream.url)) {
+    console.log(`[scraperStreamToMwStream] Skipping non-streamable stream url: ${(stream.url || '').slice(0, 80)}`);
+    return null;
+  }
+
   const quality = stream.quality || 'unknown';
   const qualities = {};
   qualities[quality] = { type: 'mp4', url: stream.url };
@@ -202,6 +272,9 @@ function scraperStreamToMwStream(stream, sourceId) {
 
 // GET /metadata - Return all providers in MetaOutput format
 app.get('/metadata', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   const result = [];
   const sorted = Object.entries(providerMeta)
     .sort((a, b) => (config.providers[a[0]]?.priority || 999) - (config.providers[b[0]]?.priority || 999));
@@ -253,22 +326,41 @@ app.get('/scrape', async (req, res) => {
     if (sse.cancelled()) return;
     try {
       sse.emit('start', id);
+
+      // Emit realtime progress fill while the scraper works
+      let progress = 0;
+      const progressTimer = setInterval(() => {
+        if (sse.cancelled()) { clearInterval(progressTimer); return; }
+        progress = Math.min(progress + 4, 85);
+        sse.emit('update', { id, percentage: progress, status: 'pending' });
+      }, 400);
+
       const mod = providers[id];
       const mediaType = type || 'movie';
       const sNum = season || seasonNumber || null;
       const eNum = episode || episodeNumber || null;
       const streams = await mod.getStreams(tmdbId, mediaType, sNum, eNum);
+      clearInterval(progressTimer);
+      if (sse.cancelled()) return;
+
       const filtered = filterStreams(streams || [], id);
 
       if (filtered && filtered.length > 0) {
+        let foundValid = false;
         for (let i = 0; i < filtered.length; i++) {
           const stream = filtered[i];
-          sse.emit('update', { id, percentage: Math.round(((i + 1) / filtered.length) * 100), status: 'success' });
           const mwStream = scraperStreamToMwStream(stream, id);
+          if (!mwStream) continue;
+          foundValid = true;
+          const pct = Math.round(85 + ((i + 1) / filtered.length) * 15);
+          sse.emit('update', { id, percentage: pct, status: 'success' });
           const output = { sourceId: id, stream: mwStream };
           sse.emit('completed', output);
           res.end();
           return;
+        }
+        if (!foundValid) {
+          sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streamable qualities/sources found' });
         }
       } else {
         sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streams returned' });
@@ -307,10 +399,17 @@ app.get('/scrape/source', async (req, res) => {
     const filtered = filterStreams(streams || [], id);
 
     if (filtered && filtered.length > 0) {
-      const mwStreams = filtered.map((s, i) => scraperStreamToMwStream(s, id + '-' + i));
-      sse.emit('update', { id, percentage: 100, status: 'success' });
-      const output = { embeds: [], stream: mwStreams };
-      sse.emit('completed', output);
+      const mwStreams = filtered
+        .map((s, i) => scraperStreamToMwStream(s, id + '-' + i))
+        .filter(Boolean);
+      if (mwStreams.length > 0) {
+        sse.emit('update', { id, percentage: 100, status: 'success' });
+        const output = { embeds: [], stream: mwStreams };
+        sse.emit('completed', output);
+      } else {
+        sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streamable qualities/sources found' });
+        sse.emit('noOutput', '');
+      }
     } else {
       sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streams returned' });
       sse.emit('noOutput', '');
@@ -342,9 +441,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 // List all providers with config
 app.get('/api/providers', (req, res) => {
   const result = {};
-  for (const [id, mod] of Object.entries(providers)) {
+  for (const [id, meta] of Object.entries(providerMeta)) {
     result[id] = {
-      ...providerMeta[id],
+      ...meta,
       enabled: config.providers[id]?.enabled ?? true,
       priority: config.providers[id]?.priority ?? 999,
       disabledServers: config.providers[id]?.disabledServers || [],
@@ -380,7 +479,7 @@ app.post('/api/providers/toggle-all', (req, res) => {
   const { enabled } = req.body;
   if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'Missing enabled boolean' });
   for (const id of Object.keys(config.providers)) {
-    if (providers[id]) config.providers[id].enabled = enabled;
+    if (providerMeta[id]) config.providers[id].enabled = enabled;
   }
   saveConfig();
   res.json({ enabled });
