@@ -91,8 +91,8 @@ async function getStreams(id, type, season, episode) {
                 }
             }
             return {
-                name: s.provider || "StreamVault",
-                title: (s.provider || "StreamVault") + " [" + (s.quality || "Auto") + "] · " + streamType,
+                name: s.provider || "Zeus",
+                title: (s.provider || "Zeus") + " [" + (s.quality || "Auto") + "] · " + streamType,
                 url: s.url,
                 quality: s.quality || "Auto",
                 headers: s.headers || { "User-Agent": USER_AGENT },
@@ -105,4 +105,4 @@ async function getStreams(id, type, season, episode) {
     }
 }
 
-module.exports = { getStreams, name: "StreamVault", supportedTypes: ["movie", "tv"] };
+module.exports = { getStreams, name: "Zeus", supportedTypes: ["movie", "tv"] };

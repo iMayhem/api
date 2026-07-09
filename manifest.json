@@ -890,7 +890,7 @@
     },
     {
       "id": "vaplayer",
-      "name": "VaPlayer",
+      "name": "Poseidon",
       "description": "Streams from vaplayer.ru via nextgencloudfabric.com CDN — HLS direct from onlinevisibilitysystem.site",
       "version": "1.0.0",
       "author": "opencode",
@@ -904,7 +904,7 @@
     },
     {
       "id": "vidrift",
-      "name": "VidRift",
+      "name": "Hades",
       "description": "Streams from vidrift.in — HLS with proxy support via onlinevisibilitysystem.site CDN",
       "version": "1.0.0",
       "author": "opencode",
@@ -918,7 +918,7 @@
     },
     {
       "id": "streamvault",
-      "name": "StreamVault",
+      "name": "Zeus",
       "description": "Multi-CDN aggregator (Moonstone, Flint, Zoisite, Peridot) — HLS + MP4 streams via streamvaultsrc.click",
       "version": "1.0.0",
       "author": "opencode",
@@ -927,6 +927,20 @@
       "enabled": true,
       "hasSettings": true,
       "formats": ["m3u8", "mp4"],
+      "logo": "",
+      "contentLanguage": ["en"]
+    },
+    {
+      "id": "moovie-catalog",
+      "name": "Athena",
+      "description": "Netflix catalogue stream resolver — HMAC-signed watchbox streams from imdb3.shop API, CDN-aware headers via netmirror.global",
+      "version": "1.0.0",
+      "author": "opencode",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "deobfuscated/moovie-catalog.js",
+      "enabled": true,
+      "hasSettings": true,
+      "formats": ["mp4", "m3u8"],
       "logo": "",
       "contentLanguage": ["en"]
     }

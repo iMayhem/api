@@ -971,6 +971,44 @@ app.get('/proxy', async (req, res) => {
   }
 });
 
+// Resolve a known catalogue variant (language-dubbed stream)
+app.get('/api/resolve-variant', async (req, res) => {
+  const { provider: providerId, id, type = 'movie', season, episode } = req.query;
+  if (!providerId || !id) return res.status(400).json({ error: 'Missing provider or id' });
+
+  const mod = providers[providerId];
+  if (!mod || typeof mod.resolveVariant !== 'function') {
+    return res.status(400).json({ error: 'Provider does not support variant resolution' });
+  }
+
+  try {
+    const result = await mod.resolveVariant(id, type, season || null, episode || null);
+    if (!result) return res.status(404).json({ error: 'No stream found for variant' });
+
+    if (!result.type) {
+      if (result.url.includes('.m3u8')) result.type = 'm3u8';
+      else if (result.url.includes('.mpd')) result.type = 'mpd';
+      else if (result.url.includes('.ts')) result.type = 'ts';
+      else if (result.url.includes('.mp4')) result.type = 'mp4';
+      else if (result.url.includes('.mkv')) result.type = 'mkv';
+      else result.type = 'mp4';
+    }
+
+    const storeId = generateStreamId();
+    streamStore.set(storeId, {
+      ts: Date.now(),
+      url: result.url,
+      headers: result.headers || {},
+      type: result.type,
+    });
+    result.proxyUrl = `/proxy?id=${storeId}`;
+
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ============ Analytics Routes ============
 
 app.post('/api/analytics/event', analytics.handleEvent);

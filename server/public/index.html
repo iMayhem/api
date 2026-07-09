@@ -6,6 +6,11 @@
 <title>StreamScraper Hub</title>
 <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
 <link rel="stylesheet" href="/css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 </head>
 <body>
 <nav class="sidebar">
@@ -240,6 +245,15 @@
           <input type="range" id="setIndexOpacity" min="0.1" max="1" step="0.05" value="0.85" oninput="applyIndexOpacity(this.value)" style="flex:1;max-width:200px">
           <span id="indexOpacityVal">85%</span>
         </label>
+      </div>
+      <div class="setting-group">
+        <h3>🔊 Audio</h3>
+        <label>Preferred audio language: <input type="text" id="setAudioLang" placeholder="e.g. English, Japanese" style="width:200px"></label>
+        <p class="hint">When a stream plays, if this language is available it will be selected automatically. Leave empty for default.</p>
+        <div id="currentAudioTracks" class="audio-tracks-info" style="margin-top:8px;padding:8px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:4px">Available audio tracks:</div>
+          <div id="audioTracksList" style="font-size:13px;color:var(--text)">No audio tracks loaded. Play a stream to see available tracks.</div>
+        </div>
       </div>
       <button onclick="saveSettings()" class="btn-primary">💾 Save Settings</button>
       <span id="settingsStatus"></span>

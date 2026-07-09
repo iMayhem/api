@@ -24,6 +24,9 @@ let hlsAudioTracks = [];
 let currentHlsLevel = -1;
 let currentHlsAudio = -1;
 let qualityFilter = { '4k': true, '1080': true, '720': true, 'sd': true, 'unknown': true };
+let preferredAudioLang = localStorage.getItem('preferredAudioLang') || '';
+let currentLanguageVariants = [];
+let currentSearchContext = { type: 'movie', season: null, episode: null };
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -59,6 +62,8 @@ async function doSearch() {
   const status = document.getElementById('statusBar');
   container.innerHTML = '<div class="loading">Searching all enabled providers...</div>';
   status.textContent = 'Searching...';
+
+  currentSearchContext = { type, season, episode };
 
   try {
     let url = `/api/search?q=${encodeURIComponent(query)}&type=${type}`;
@@ -106,6 +111,12 @@ async function doSearch() {
               const proxyUrl = s.proxyUrl || s.url || '';
               const escapedUrl = encodeURIComponent(proxyUrl);
               const url = s.url || '';
+              const variants = s._languageVariants || [];
+              const variantHtml = variants.length ? '<div class="lang-variants">' +
+                variants.map(function(v) {
+                  return '<span class="lang-variant-badge" data-provider="' + (group.provider || '') + '" data-catalog-id="' + v.catalogId + '" data-media-type="' + (v.media_type || '') + '" data-lang="' + v.language + '" onclick="event.stopPropagation();playLanguageVariant(this)">' + v.language + '</span>';
+                }).join('') +
+              '</div>' : '';
               return `
                 <div class="stream-card ${qClass}" data-quality="${(s.quality || 'Auto').replace(/"/g, '&quot;')}" onclick="playStream('${escapedUrl}', '${(s.name || 'Stream').replace(/'/g, "\\'")}', '${(s.quality || 'Auto').replace(/'/g, "\\'")}', '${(s.type || '').replace(/'/g, "\\'")}')">
                   <strong>${s.name || 'Stream'}</strong>
@@ -116,6 +127,7 @@ async function doSearch() {
                     ${s.size ? `<span>💾 ${s.size}</span>` : ''}
                     <span>🔗 ${s.provider || group.providerName}</span>
                   </div>
+                  ${variantHtml}
                   <span class="play-badge">▶️ Play</span>
                 </div>`;
             }).join('')}
@@ -252,10 +264,104 @@ function playStream(encodedUrl, name, quality, type) {
   const url = decodeURIComponent(encodedUrl);
   switchView('player');
   document.getElementById('playerMeta').textContent = `${name} ${quality ? '- ' + quality : ''}`;
+
+  const clicked = allStreams.find(function(s) { return (s.proxyUrl || s.url) === url; });
+  currentLanguageVariants = (clicked && clicked._languageVariants) || [];
+
   anTrack('play', { url, name, quality, type });
   anStartHeartbeat({ currentStream: name, currentUrl: location.href });
   loadPlayer(url, name, type);
   renderSourceSelector();
+  renderDubsControls();
+}
+
+async function playLanguageVariant(el) {
+  const provider = el.dataset.provider;
+  const catalogId = el.dataset.catalogId;
+  const mediaType = el.dataset.mediaType || 'movie';
+  const lang = el.dataset.lang;
+  if (!provider || !catalogId) return;
+
+  const season = currentSearchContext.season || null;
+  const episode = currentSearchContext.episode || null;
+  const type = mediaType || currentSearchContext.type || 'movie';
+
+  document.getElementById('playerMeta').textContent = `Switching to ${lang}...`;
+  el.classList.add('loading');
+
+  try {
+    const res = await fetch(`/api/resolve-variant?provider=${encodeURIComponent(provider)}&id=${encodeURIComponent(catalogId)}&type=${encodeURIComponent(type)}&season=${season || ''}&episode=${episode || ''}`);
+    if (!res.ok) throw new Error((await res.json()).error || 'Failed to resolve variant');
+    const data = await res.json();
+    el.classList.remove('loading');
+
+    document.getElementById('playerMeta').textContent = `Netflix · ${data.quality || 'Auto'} · ${lang}`;
+    anTrack('audio_change', { from: 'variant', to: lang, label: lang });
+    loadPlayer(data.proxyUrl || data.url, data.name || 'MoovieCatalog', data.type);
+    renderSourceSelector();
+    renderDubsControls();
+  } catch (e) {
+    el.classList.remove('loading');
+    el.style.borderColor = 'var(--error, #ef4444)';
+    document.getElementById('playerMeta').textContent = `Failed to load ${lang}: ${e.message}`;
+  }
+}
+
+function renderDubsControls() {
+  const container = document.getElementById('playerContainer');
+  if (!currentLanguageVariants || !currentLanguageVariants.length) {
+    const existing = container.querySelector('.dubs-controls');
+    if (existing) existing.style.display = 'none';
+    return;
+  }
+
+  let bar = container.querySelector('.dubs-controls');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.className = 'dubs-controls';
+    container.appendChild(bar);
+  }
+  bar.style.display = 'flex';
+
+  if (bar.querySelector('.dubs-btn')) return; // already rendered
+
+  const btn = document.createElement('button');
+  btn.className = 'hls-btn dubs-btn';
+  btn.textContent = '🔊 Dubs';
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    const dd = this.querySelector('.dubs-dropdown');
+    if (dd) dd.classList.toggle('open');
+  });
+
+  const dd = document.createElement('div');
+  dd.className = 'hls-dropdown dubs-dropdown';
+  currentLanguageVariants.forEach(function(v) {
+    const item = document.createElement('button');
+    item.textContent = v.language;
+    item.addEventListener('click', function(ev) {
+      ev.stopPropagation();
+      const provider = container.dataset.provider || 'moovie-catalog';
+      const type = v.media_type || container.dataset.type || 'movie';
+      const season = currentSearchContext.season || '';
+      const episode = currentSearchContext.episode || '';
+      fetch(`/api/resolve-variant?provider=${encodeURIComponent(provider)}&id=${encodeURIComponent(v.catalogId)}&type=${encodeURIComponent(type)}&season=${season}&episode=${episode}`)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.url) {
+            document.getElementById('playerMeta').textContent = 'Netflix · ' + (data.quality || 'Auto') + ' · ' + v.language;
+            anTrack('audio_change', { from: 'dubs', to: v.language, label: v.language });
+            loadPlayer(data.proxyUrl || data.url, data.name || 'MoovieCatalog', data.type);
+            renderDubsControls();
+          }
+          dd.classList.remove('open');
+        })
+        .catch(function() { dd.classList.remove('open'); });
+    });
+    dd.appendChild(item);
+  });
+  btn.appendChild(dd);
+  bar.appendChild(btn);
 }
 
 const HLS_CONFIG = window.PLAYER_CONFIG?.hls || {
@@ -287,12 +393,50 @@ function updateHlsLevelLabel(btn) {
   }
 }
 
+function updateAudioTracksInfo() {
+  const list = document.getElementById('audioTracksList');
+  if (!list) return;
+  if (!hlsAudioTracks.length) {
+    list.textContent = 'No audio tracks loaded. Play a stream to see available tracks.';
+    return;
+  }
+  let html = '';
+  hlsAudioTracks.forEach(function(t, i) {
+    const active = currentHlsAudio === i;
+    html += '<div style="padding:2px 0;' + (active ? 'color:var(--accent);font-weight:700' : '') + '">'
+      + (active ? '▶ ' : '') + (t.name || 'Track ' + (i + 1))
+      + (t.lang ? ' <span style="color:var(--text2)">[' + t.lang + ']</span>' : '')
+      + (active ? ' <span style="color:var(--accent)">(active)</span>' : '')
+      + '</div>';
+  });
+  list.innerHTML = html;
+}
+
 function updateHlsAudioLabel(btn) {
   if (!btn) return;
   if (hlsAudioTracks[currentHlsAudio]) {
     btn.textContent = '🔊 ' + (hlsAudioTracks[currentHlsAudio].name || 'Track ' + (currentHlsAudio + 1));
   } else {
     btn.textContent = '🔊 Audio';
+  }
+}
+
+function tryAutoSelectAudio() {
+  if (!preferredAudioLang || !hlsAudioTracks.length || !hlsInstance) return;
+  const langLower = preferredAudioLang.toLowerCase();
+  for (let i = 0; i < hlsAudioTracks.length; i++) {
+    const t = hlsAudioTracks[i];
+    if ((t.lang && t.lang.toLowerCase().includes(langLower)) ||
+        (t.name && t.name.toLowerCase().includes(langLower))) {
+      if (i !== currentHlsAudio) {
+        currentHlsAudio = i;
+        hlsInstance.audioTrack = i;
+        const aBtn = document.querySelector('.hls-audio-btn');
+        if (aBtn) updateHlsAudioLabel(aBtn);
+        updateAudioTracksInfo();
+      }
+      break;
+    }
   }
 }
 
@@ -306,7 +450,7 @@ function renderHlsControls() {
   }
 
   const hasLevels = hlsLevels.length > 0;
-  const hasAudio = hlsAudioTracks.length > 1;
+  const hasAudio = hlsAudioTracks.length > 0;
 
   if (!hasLevels && !hasAudio) {
     bar.style.display = 'none';
@@ -329,7 +473,7 @@ function renderHlsControls() {
     bar.appendChild(qBtn);
   }
 
-  if (hasAudio && !bar.querySelector('.hls-audio-btn')) {
+  if (hlsAudioTracks.length > 0 && !bar.querySelector('.hls-audio-btn')) {
     const aBtn = document.createElement('button');
     aBtn.className = 'hls-btn hls-audio-btn';
     updateHlsAudioLabel(aBtn);
@@ -376,7 +520,8 @@ function renderHlsControls() {
     if (dd) {
       let html = '';
       hlsAudioTracks.forEach(function(t, i) {
-        html += '<button data-track="' + i + '" class="' + (currentHlsAudio === i ? 'is-active' : '') + '">' + (t.name || 'Track ' + (i + 1)) + '</button>';
+        const langTag = t.lang ? ' <span style="color:var(--text2);font-size:11px">[' + t.lang + ']</span>' : '';
+        html += '<button data-track="' + i + '" class="' + (currentHlsAudio === i ? 'is-active' : '') + '">' + (t.name || 'Track ' + (i + 1)) + langTag + '</button>';
       });
       dd.innerHTML = html;
       dd.querySelectorAll('button').forEach(function(btn) {
@@ -386,6 +531,7 @@ function renderHlsControls() {
           currentHlsAudio = parseInt(this.dataset.track);
           if (hlsInstance) hlsInstance.audioTrack = currentHlsAudio;
           updateHlsAudioLabel(aBtn);
+          updateAudioTracksInfo();
           dd.classList.remove('open');
           anTrack('audio_change', { from, to: currentHlsAudio, label: hlsAudioTracks[currentHlsAudio] ? hlsAudioTracks[currentHlsAudio].name : '?' });
         });
@@ -403,6 +549,8 @@ const PLYR_CONFIG = window.PLAYER_CONFIG?.plyr || {
   settings: ['quality', 'speed'],
   autoplay: true,
 };
+PLYR_CONFIG.settings = ['quality', 'speed'];
+if (!PLYR_CONFIG.settings.includes('audio')) PLYR_CONFIG.settings.push('audio');
 
 function initPlyr() {
   const video = document.getElementById('plyrVideo');
@@ -446,9 +594,14 @@ function loadPlayer(url, title, type) {
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
       hlsLevels = hlsInstance.levels || [];
       hlsAudioTracks = hlsInstance.audioTracks || [];
+      if (hlsLevels.length > 0) {
+        hlsInstance.currentLevel = hlsLevels.length - 1;
+      }
       currentHlsLevel = hlsInstance.currentLevel;
       currentHlsAudio = hlsInstance.audioTrack;
       renderHlsControls();
+      updateAudioTracksInfo();
+      tryAutoSelectAudio();
       if (!player) {
         player = new Plyr(video, PLYR_CONFIG);
       }
@@ -503,27 +656,38 @@ function renderPingResults() {
   }).join('');
 }
 
+const QUALITY_RANK = { '4k': 4, '1080': 3, '720': 2, 'sd': 1, 'unknown': 0 };
+
+function rankQuality(quality) {
+  return QUALITY_RANK[classifyQuality(quality)] || 0;
+}
+
 async function selectFastestStream() {
   if (allStreams.length === 0) return null;
   const tests = allStreams.map(function(s) {
     return pingStream(s.proxyUrl || s.url, 8000);
   });
-  appendTestLog('info', '⏱️ Ping-testing <strong>' + allStreams.length + '</strong> stream(s) to find the fastest...');
+  appendTestLog('info', '⏱️ Ping-testing <strong>' + allStreams.length + '</strong> stream(s) to find responsive ones...');
   const results = await Promise.all(tests);
-  // Store ping results with provider/quality info for display
   lastPingResults = results.map(function(r) {
     const s = allStreams.find(function(st) { return (st.proxyUrl || st.url) === r.url; });
     return { url: r.url, time: r.time, alive: r.alive, provider: s ? s._providerName : '?', quality: s ? s.quality || 'Auto' : '?' };
   });
   renderPingResults();
-  const alive = results.filter(function(r) { return r.alive; }).sort(function(a, b) { return a.time - b.time; });
+  const alive = results.filter(function(r) { return r.alive; });
   if (alive.length === 0) {
     appendTestLog('warn', '⚠️ No responsive streams found — falling back to first result');
     return allStreams[0];
   }
-  const best = alive[0];
+  const sortedByQuality = alive
+    .map(function(r) {
+      const s = allStreams.find(function(st) { return (st.proxyUrl || st.url) === r.url; });
+      return { ...r, _quality: s ? s.quality || 'Auto' : 'Auto', _provider: s ? s._providerName : '?' };
+    })
+    .sort(function(a, b) { return rankQuality(b._quality) - rankQuality(a._quality) || a.time - b.time; });
+  const best = sortedByQuality[0];
   const chosen = allStreams.find(function(s) { return (s.proxyUrl || s.url) === best.url; });
-  appendTestLog('success', '⚡ Selected fastest stream — <strong>' + (chosen ? chosen.quality || 'Auto' : '?') + '</strong> (' + Math.round(best.time) + 'ms)' + (chosen ? ' from <strong>' + chosen._providerName + '</strong>' : ''));
+  appendTestLog('success', '🎯 Selected highest quality stream — <strong>' + (best._quality || 'Auto') + '</strong> (' + Math.round(best.time) + 'ms) from <strong>' + (best._provider || '?') + '</strong>');
   return chosen || allStreams[0];
 }
 
@@ -744,6 +908,8 @@ async function loadSettings() {
   document.getElementById('setAutoplay').checked = cfg.autoplay !== false;
   document.getElementById('setIntroSkip').checked = cfg.introSkip === true;
   loadIndexOpacity();
+  document.getElementById('setAudioLang').value = preferredAudioLang;
+  updateAudioTracksInfo();
   if (cfg.qualityFilter) {
     qualityFilter = cfg.qualityFilter;
     ['4k', '1080', '720', 'sd', 'unknown'].forEach(function(k) {
@@ -772,6 +938,9 @@ async function saveSettings() {
   body.streamProxy = document.getElementById('setStreamProxy').checked;
   body.autoplay = document.getElementById('setAutoplay').checked;
   body.introSkip = document.getElementById('setIntroSkip').checked;
+  const lang = document.getElementById('setAudioLang').value.trim();
+  preferredAudioLang = lang;
+  localStorage.setItem('preferredAudioLang', lang);
   await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
   const status = document.getElementById('settingsStatus');
   status.textContent = '✅ Settings saved! Restart server to apply port change.';
@@ -1113,19 +1282,23 @@ function startTest() {
     }
 
     if (smartPing) {
-      // Wait for all in-progress pings, pick fastest alive, play it
       const doneRef = lastPingResults;
       Promise.allSettled(pingPromises).then(function() {
         renderPingResults();
-        const alive = doneRef.filter(function(r) { return r.alive; }).sort(function(a, b) { return a.time - b.time; });
+        const alive = doneRef.filter(function(r) { return r.alive; });
         const best = alive.length > 0
-          ? allStreams.find(function(s) { return (s.proxyUrl || s.url) === alive[0].url; })
+          ? alive
+              .map(function(r) { return { ...r, _rank: rankQuality(r.quality) }; })
+              .sort(function(a, b) { return b._rank - a._rank || a.time - b.time; })[0]
           : null;
-        const target = best || allStreams[0];
-        if (target) {
-          playNow(target);
-          if (best) {
-            appendTestLog('success', '⚡ Smart ping chose <strong>' + (best.provider || '?') + '</strong> (' + Math.round(best.time) + 'ms) — ' + (best.quality || 'Auto'));
+        const target = best
+          ? allStreams.find(function(s) { return (s.proxyUrl || s.url) === best.url; })
+          : null;
+        const fallback = target || allStreams[0];
+        if (fallback) {
+          playNow(fallback);
+          if (target) {
+            appendTestLog('success', '🎯 Smart ping chose <strong>' + (target.provider || '?') + '</strong> (' + Math.round(best.time) + 'ms) — ' + (target.quality || 'Auto') + ' (highest quality)');
           } else {
             appendTestLog('warn', '⚠️ No responsive streams — playing first available');
           }

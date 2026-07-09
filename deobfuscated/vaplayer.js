@@ -59,16 +59,16 @@ async function getStreams(id, type, season, episode) {
                 // Return the proxied MASTER playlist URL
                 // HLS.js will detect all quality levels and offer switching
                 results.push({
-                    name: "VaPlayer",
-                    title: "VaPlayer · HLS",
+                    name: "Poseidon",
+                    title: "Poseidon · HLS",
                     url: proxyUrl,
                     quality: bestQuality,
                     headers: { "User-Agent": USER_AGENT },
                 });
             } catch (e) {
                 results.push({
-                    name: "VaPlayer",
-                    title: "VaPlayer · HLS",
+                    name: "Poseidon",
+                    title: "Poseidon · HLS",
                     url: streamUrl,
                     quality: "Auto",
                     headers: { Referer: CDN_ORIGIN + "/", Origin: CDN_ORIGIN, "User-Agent": USER_AGENT },
@@ -81,4 +81,4 @@ async function getStreams(id, type, season, episode) {
     }
 }
 
-module.exports = { getStreams, name: "VaPlayer", supportedTypes: ["movie", "tv"] };
+module.exports = { getStreams, name: "Poseidon", supportedTypes: ["movie", "tv"] };

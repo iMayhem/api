@@ -2,7 +2,7 @@
 window.PLAYER_CONFIG = {
   plyr: {
     controls: ['play-large', 'play', 'skip-back', 'progress', 'current-time', 'duration', 'mute', 'skip-forward', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
-    settings: ['quality', 'speed'],
+    settings: ['quality', 'speed', 'audio'],
     autoplay: true,
     seekTime: 10,
   },
