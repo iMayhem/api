@@ -268,6 +268,9 @@ function playStream(encodedUrl, name, quality, type) {
   const clicked = allStreams.find(function(s) { return (s.proxyUrl || s.url) === url; });
   currentLanguageVariants = (clicked && clicked._languageVariants) || [];
 
+  const container = document.getElementById('playerContainer');
+  container.dataset.provider = (clicked && clicked._providerId) || 'moovie-catalog';
+
   anTrack('play', { url, name, quality, type });
   anStartHeartbeat({ currentStream: name, currentUrl: location.href });
   loadPlayer(url, name, type);
@@ -422,7 +425,7 @@ function updateHlsAudioLabel(btn) {
 }
 
 function tryAutoSelectAudio() {
-  if (!preferredAudioLang || !hlsAudioTracks.length || !hlsInstance) return;
+  if (!preferredAudioLang || !hlsAudioTracks.length) return;
   const langLower = preferredAudioLang.toLowerCase();
   for (let i = 0; i < hlsAudioTracks.length; i++) {
     const t = hlsAudioTracks[i];
@@ -430,7 +433,7 @@ function tryAutoSelectAudio() {
         (t.name && t.name.toLowerCase().includes(langLower))) {
       if (i !== currentHlsAudio) {
         currentHlsAudio = i;
-        hlsInstance.audioTrack = i;
+        if (hlsInstance) hlsInstance.audioTrack = i;
         const aBtn = document.querySelector('.hls-audio-btn');
         if (aBtn) updateHlsAudioLabel(aBtn);
         updateAudioTracksInfo();
@@ -527,13 +530,39 @@ function renderHlsControls() {
       dd.querySelectorAll('button').forEach(function(btn) {
         btn.addEventListener('click', function(e) {
           e.stopPropagation();
+          const idx = parseInt(this.dataset.track);
+          const track = hlsAudioTracks[idx];
+          if (!track) return;
+          // If it's a language variant, resolve and switch instead of HLS audio switch
+          if (track._isVariant) {
+            dd.classList.remove('open');
+            const container = document.getElementById('playerContainer');
+            const provider = container.dataset.provider || 'moovie-catalog';
+            const type = track._mediaType || 'movie';
+            const season = currentSearchContext.season || '';
+            const episode = currentSearchContext.episode || '';
+            document.getElementById('playerMeta').textContent = 'Switching to ' + track.name + '...';
+            fetch('/api/resolve-variant?provider=' + encodeURIComponent(provider) + '&id=' + encodeURIComponent(track._catalogId) + '&type=' + encodeURIComponent(type) + '&season=' + season + '&episode=' + episode)
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                if (data.url) {
+                  document.getElementById('playerMeta').textContent = 'Netflix · ' + (data.quality || 'Auto') + ' · ' + track.name;
+                  anTrack('audio_change', { from: 'hls-audio', to: track.name, label: track.name });
+                  loadPlayer(data.proxyUrl || data.url, data.name || 'MoovieCatalog', data.type);
+                  renderSourceSelector();
+                  renderDubsControls();
+                }
+              })
+              .catch(function() {});
+            return;
+          }
           const from = currentHlsAudio;
-          currentHlsAudio = parseInt(this.dataset.track);
+          currentHlsAudio = idx;
           if (hlsInstance) hlsInstance.audioTrack = currentHlsAudio;
           updateHlsAudioLabel(aBtn);
           updateAudioTracksInfo();
           dd.classList.remove('open');
-          anTrack('audio_change', { from, to: currentHlsAudio, label: hlsAudioTracks[currentHlsAudio] ? hlsAudioTracks[currentHlsAudio].name : '?' });
+          anTrack('audio_change', { from, to: currentHlsAudio, label: track.name || '?' });
         });
       });
     }
@@ -556,6 +585,22 @@ function initPlyr() {
   const video = document.getElementById('plyrVideo');
   if (!video || player) return;
   player = new Plyr(video, PLYR_CONFIG);
+}
+
+function injectLanguageVariantTracks() {
+  if (!currentLanguageVariants.length) return;
+  for (const v of currentLanguageVariants) {
+    const exists = hlsAudioTracks.some(function(t) { return t.name === v.language; });
+    if (!exists) {
+      hlsAudioTracks.push({
+        name: v.language,
+        lang: v.language,
+        _isVariant: true,
+        _catalogId: v.catalogId,
+        _mediaType: v.media_type,
+      });
+    }
+  }
 }
 
 function loadPlayer(url, title, type) {
@@ -594,6 +639,7 @@ function loadPlayer(url, title, type) {
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
       hlsLevels = hlsInstance.levels || [];
       hlsAudioTracks = hlsInstance.audioTracks || [];
+      injectLanguageVariantTracks();
       if (hlsLevels.length > 0) {
         hlsInstance.currentLevel = hlsLevels.length - 1;
       }
@@ -612,6 +658,10 @@ function loadPlayer(url, title, type) {
     });
     hlsInstance.on(Hls.Events.LEVEL_LOADED, () => markStreamLoaded());
   } else {
+    injectLanguageVariantTracks();
+    // Show HLS controls for variant tracks even without HLS
+    renderHlsControls();
+    updateAudioTracksInfo();
     video.onerror = function() { markStreamLoaded(); };
     video.src = url;
     video.load();
