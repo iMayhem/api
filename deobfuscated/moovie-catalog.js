@@ -137,6 +137,7 @@ async function getTmdbTitle(id, type) {
 
 async function getTmdbTitles(id, type) {
   const titles = new Set();
+  let targetYear = null;
   try {
     const mediaType = type === 'tv' ? 'tv' : 'movie';
     const url = `${TMDB_BASE_URL}/${mediaType}/${id}?api_key=${TMDB_API_KEY}`;
@@ -144,6 +145,10 @@ async function getTmdbTitles(id, type) {
     const data = await resp.json();
     const primary = data?.title || data?.name || null;
     if (primary) titles.add(primary);
+
+    const yearStr = data?.release_date || data?.first_air_date || '';
+    const yearMatch = yearStr.match(/^(\d{4})/);
+    if (yearMatch) targetYear = parseInt(yearMatch[1], 10);
 
     const altUrl = `${TMDB_BASE_URL}/${mediaType}/${id}/alternative_titles?api_key=${TMDB_API_KEY}`;
     const altResp = await fetch(altUrl);
@@ -156,7 +161,7 @@ async function getTmdbTitles(id, type) {
   } catch (e) {
     console.error('[MoovieCatalog] getTmdbTitles error:', e.message);
   }
-  return Array.from(titles);
+  return { titles: Array.from(titles), year: targetYear };
 }
 
 async function fetchMetadata(type, id) {
@@ -292,9 +297,11 @@ async function getStreams(id, type, season, episode, rawQuery) {
     let searchTitles = [];
     if (rawQuery) searchTitles.push(rawQuery);
     
+    let targetYear = null;
     if (/^\d+$/.test(tid)) {
-      const tmdbTitles = await getTmdbTitles(tid, type);
-      for (const t of tmdbTitles) {
+      const res = await getTmdbTitles(tid, type);
+      targetYear = res.year;
+      for (const t of res.titles) {
         if (!searchTitles.includes(t)) searchTitles.push(t);
       }
     }
@@ -310,9 +317,21 @@ async function getStreams(id, type, season, episode, rawQuery) {
       if (!title || !/[a-z0-9]/i.test(cleanText(title))) continue;
       try {
         const results = await searchCatalog(title);
-        const cleanTarget = cleanText(title);
         for (const r of results) {
           if (meta) break;
+
+          // Verify release year to prevent matching incorrect movie remakes/versions (e.g. Titanic 1997 vs 1943)
+          if (targetYear && r.release_date) {
+            const catalogYearMatch = r.release_date.match(/(\d{4})/);
+            if (catalogYearMatch) {
+              const catalogYear = parseInt(catalogYearMatch[1], 10);
+              const maxDiff = (type === 'movie' || type === 'show' || type === 'tv') && type === 'movie' ? 2 : 10;
+              if (Math.abs(targetYear - catalogYear) > maxDiff) {
+                continue;
+              }
+            }
+          }
+
           const p = parseCatalogTitle(r.title || '');
           const cleanCatalog = cleanText(p.displayTitle);
           
