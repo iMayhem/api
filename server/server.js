@@ -1089,34 +1089,6 @@ app.get('/api/variants/fss', async (req, res) => {
   }
 });
 
-app.get('/api/variants/hi', async (req, res) => {
-  let { tmdbId, type = 'movie', title } = req.query;
-  if (!tmdbId) return res.status(400).json({ error: 'Missing tmdbId' });
-
-  const mod = providers['aryabhatta'];
-  if (!mod || typeof mod.searchKartoons !== 'function') {
-    return res.status(400).json({ error: 'Aryabhatta provider not loaded' });
-  }
-
-  try {
-    const results = await mod.searchKartoons(title || '', type);
-    if (!results || !results.length) return res.json({ variants: [] });
-
-    const best = results.find(r => r._id);
-    if (!best) return res.json({ variants: [] });
-
-    res.json({
-      variants: [{
-        language: 'hindi',
-        label: 'Hindi',
-        id: best._id,
-      }],
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 app.get('/api/variants/de', async (req, res) => {
   let { tmdbId, type = 'movie', title } = req.query;
   if (!tmdbId) return res.status(400).json({ error: 'Missing tmdbId' });

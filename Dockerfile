@@ -1,18 +1,7 @@
 FROM node:22-alpine
 WORKDIR /app
 
-# Install Chromium and its dependencies for Puppeteer
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    font-noto \
-    font-noto-cjk \
-    ttf-freefont
-
-COPY package.json package-lock.json ./
+COPY package.json ./
 RUN npm install --omit=dev
 
 COPY . ./
