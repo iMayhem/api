@@ -2,7 +2,7 @@ const crypto = require('crypto');
 
 const CATALOG_SECRET = 'net###@@sss';
 const CATALOG_API = 'https://api2.imdb3.shop/api';
-const SEARCH_API = 'https://api2.imdb4.shop/api/search2';
+const SEARCH_API = 'https://api2.imdb3.shop/api/search2';
 const CATALOG_REFERER = 'https://netmirror.global/';
 const CATALOG_ORIGIN = 'https://netmirror.global';
 
@@ -322,19 +322,25 @@ async function getStreams(id, type, season, episode, rawQuery) {
             const catType = r.media_type === 'tv' ? 'tv' : 'movie';
             const tempMeta = await fetchMetadata(catType, r.id);
             if (tempMeta && tempMeta.subjectid) {
-              // Try resolving streams for this metadata entry
-              let tempStreams = [];
-              for (const srv of servers) {
-                if (tempStreams.length > 0) break;
-                try {
-                  tempStreams = await tryResolveStreams(tempMeta, s, e, srv);
-                } catch {
-                  continue;
+              if (s === 0 && e === 0) {
+                // Movie: Verify streams on servers since some catalog movie entries are dead
+                let tempStreams = [];
+                for (const srv of servers) {
+                  if (tempStreams.length > 0) break;
+                  try {
+                    tempStreams = await tryResolveStreams(tempMeta, s, e, srv);
+                  } catch {
+                    continue;
+                  }
                 }
-              }
-              if (tempStreams.length > 0) {
+                if (tempStreams.length > 0) {
+                  meta = tempMeta;
+                  streams = tempStreams;
+                  break;
+                }
+              } else {
+                // TV series episode: Do not resolve streams inside the loop to avoid performance issues
                 meta = tempMeta;
-                streams = tempStreams;
                 break;
               }
             }
@@ -346,6 +352,17 @@ async function getStreams(id, type, season, episode, rawQuery) {
     }
 
     if (!meta || !meta.subjectid) return [];
+
+    if (streams.length === 0) {
+      for (const srv of servers) {
+        if (streams.length > 0) break;
+        try {
+          streams = await tryResolveStreams(meta, s, e, srv);
+        } catch {
+          continue;
+        }
+      }
+    }
 
     streams.sort((a, b) => {
       const rank = { '1080P': 0, '720P': 1, '480P': 2, Auto: 3 };
