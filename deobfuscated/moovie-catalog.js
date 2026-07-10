@@ -23,7 +23,27 @@ const CDN_REFERER = 'https://fmoviesunblocked.net/';
 const CDN_ORIGIN = 'https://h5.aoneroom.com';
 const CDN_DOMAINS = ['hakunaymatata.com', 'watch22.shop', 'aoneroom.com'];
 
-const LANGUAGE_TAGS = ['Hindi', 'English', 'Telugu', 'Tamil', 'Malayalam', 'Bengali', 'Kannada', 'Marathi', 'Punjabi', 'Arabic', 'Urdu', 'HindiDub', 'ArabicDub'];
+const LANGUAGE_TAGS = {
+  hindi: 'Hindi',
+  'hindi dub': 'Hindi',
+  hindidub: 'Hindi',
+  english: 'English',
+  telugu: 'Telugu',
+  tamil: 'Tamil',
+  malayalam: 'Malayalam',
+  bengali: 'Bengali',
+  kannada: 'Kannada',
+  marathi: 'Marathi',
+  punjabi: 'Punjabi',
+  arabic: 'Arabic',
+  'arabic dub': 'Arabic',
+  arabicdub: 'Arabic',
+  urdu: 'Urdu',
+  russian: 'Russian',
+  spanish: 'Spanish',
+  latino: 'Spanish Latino',
+  castellano: 'Spanish Castellano',
+};
 
 const CATALOG_HEADERS = {
   'User-Agent': UA,
@@ -55,8 +75,12 @@ function parseCatalogTitle(raw) {
   const tagRegex = /\[([^\]]+)\]/g;
   let match;
   while ((match = tagRegex.exec(raw)) !== null) {
-    const tag = match[1].trim();
-    if (tag && !languages.includes(tag)) languages.push(tag);
+    const tags = match[1].split(/[,/+|&]/);
+    for (const tag of tags) {
+      const key = tag.trim().toLowerCase().replace(/\s+/g, ' ');
+      const language = LANGUAGE_TAGS[key];
+      if (language && !languages.includes(language)) languages.push(language);
+    }
   }
   const displayTitle = raw
     .replace(tagRegex, '')
@@ -171,12 +195,13 @@ async function fetchMetadata(type, id) {
   return data?.results?.[0] || null;
 }
 
-async function findLanguageVariants(meta, season, episode) {
+async function findLanguageVariants(meta, type, season, episode) {
   if (!meta || !meta.title) return [];
   const parsed = parseCatalogTitle(meta.title);
   const baseTitle = parsed.displayTitle;
   const primaryId = String(meta.id);
   const primaryLangs = parsed.languages;
+  const expectedType = type === 'show' || type === 'tv' ? 'tv' : 'movie';
 
   const s = parseInt(season) || 0;
   const e = parseInt(episode) || 0;
@@ -189,13 +214,29 @@ async function findLanguageVariants(meta, season, episode) {
     return [];
   }
 
+  let targetYear = null;
+  if (meta.release_date) {
+    const yMatch = meta.release_date.match(/(\d{4})/);
+    if (yMatch) targetYear = parseInt(yMatch[1], 10);
+  }
+
   const variants = [];
   const seen = new Set();
   for (const r of results) {
+    if (r.media_type && r.media_type !== expectedType) continue;
     const rId = String(r.id);
     if (rId === primaryId) continue;
     const p = parseCatalogTitle(r.title || '');
     if (cleanText(p.displayTitle) === cleanText(baseTitle)) {
+      if (targetYear && r.release_date) {
+        const catYMatch = r.release_date.match(/(\d{4})/);
+        if (catYMatch) {
+          const catYr = parseInt(catYMatch[1], 10);
+          if (Math.abs(targetYear - catYr) > (type === 'movie' ? 2 : 10)) {
+            continue;
+          }
+        }
+      }
       for (const lang of p.languages) {
         const key = lang.toLowerCase();
         if (seen.has(key)) continue;
@@ -203,7 +244,9 @@ async function findLanguageVariants(meta, season, episode) {
         seen.add(key);
         variants.push({
           language: lang,
-          catalogId: rId,
+          // Keep the chosen label in the ID. A catalogue entry can have more
+          // than one audio tag, and the resolver otherwise loses that context.
+          catalogId: `${rId}::${encodeURIComponent(lang)}`,
           media_type: r.media_type,
           season: s || undefined,
           episode: e || undefined,
@@ -388,7 +431,7 @@ async function getStreams(id, type, season, episode, rawQuery) {
       return (rank[a.quality] ?? 9) - (rank[b.quality] ?? 9);
     });
 
-    const languageVariants = await findLanguageVariants(meta, s, e);
+    const languageVariants = await findLanguageVariants(meta, type, s, e);
 
     return streams.map((s, idx) => {
       const cdnHeaders = resolveCdnHeaders(s.url);
@@ -414,7 +457,9 @@ async function getStreams(id, type, season, episode, rawQuery) {
 async function resolveVariant(catalogId, type, season, episode) {
   try {
     const normalizedType = type === 'show' || type === 'tv' ? 'tv' : 'movie';
-    const meta = await fetchMetadata(normalizedType, catalogId);
+    const [rawCatalogId, encodedLanguage] = String(catalogId).split('::');
+    const selectedLanguage = encodedLanguage ? decodeURIComponent(encodedLanguage) : null;
+    const meta = await fetchMetadata(normalizedType, rawCatalogId);
     if (!meta || !meta.subjectid) return null;
 
     const servers = [1, 2, 3, 5, 6];
@@ -440,7 +485,7 @@ async function resolveVariant(catalogId, type, season, episode) {
 
     const best = streams[0];
     const cdnHeaders = resolveCdnHeaders(best.url);
-    const lang = parseCatalogTitle(meta.title || '').languages[0] || 'Unknown';
+    const lang = selectedLanguage || parseCatalogTitle(meta.title || '').languages[0] || 'Unknown';
 
     return {
       name: 'MoovieCatalog',

@@ -184,11 +184,27 @@ async function fetchWithProxy(url, opts = {}) {
 // Patch global fetch for providers to use proxy
 const originalFetch = global.fetch;
 global.fetch = async (url, opts = {}) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    config.globalTimeout || 12000,
+  );
+  const upstreamSignal = opts.signal;
+  const abortFromUpstream = () => controller.abort();
+  if (upstreamSignal) {
+    if (upstreamSignal.aborted) controller.abort();
+    else upstreamSignal.addEventListener('abort', abortFromUpstream, { once: true });
+  }
   const agent = createProxyAgent(typeof url === 'string' ? url : url.url);
   if (agent) {
     opts.agent = agent;
   }
-  return originalFetch(url, opts);
+  try {
+    return await originalFetch(url, { ...opts, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+    upstreamSignal?.removeEventListener('abort', abortFromUpstream);
+  }
 };
 
 function extractStreamServers(streams) {
@@ -1029,6 +1045,107 @@ app.get('/api/resolve-variant', async (req, res) => {
     result.proxyUrl = `/proxy?id=${storeId}`;
 
     res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Language variant endpoints for scrapers not exposed via search
+app.get('/api/variants/fss', async (req, res) => {
+  let { tmdbId, type = 'movie', title } = req.query;
+  if (!tmdbId || !title) return res.status(400).json({ error: 'Missing tmdbId or title' });
+
+  const mod = providers['fss'];
+  if (!mod || typeof mod.resolveVariant !== 'function') {
+    return res.status(400).json({ error: 'FSS provider not loaded' });
+  }
+
+  const langKeys = ['default', 'vff', 'vfq', 'vostfr'];
+  const langLabels = { default: 'French 1', vff: 'French 2', vfq: 'French 3', vostfr: 'French 4' };
+
+  try {
+    const variants = [];
+    for (const langKey of langKeys) {
+      const result = await mod.resolveVariant(`${tmdbId}:${langKey}`, type, null, null);
+      if (result) {
+        const storeId = generateStreamId();
+        streamStore.set(storeId, {
+          ts: Date.now(),
+          url: result.url,
+          headers: result.headers || {},
+          type: result.type || 'm3u8',
+        });
+        variants.push({
+          language: 'french',
+          label: langLabels[langKey] || langKey,
+          id: `${tmdbId}:${langKey}`,
+          proxyUrl: `/proxy?id=${storeId}`,
+        });
+      }
+    }
+    res.json({ variants });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/variants/hi', async (req, res) => {
+  let { tmdbId, type = 'movie', title } = req.query;
+  if (!tmdbId) return res.status(400).json({ error: 'Missing tmdbId' });
+
+  const mod = providers['aryabhatta'];
+  if (!mod || typeof mod.searchKartoons !== 'function') {
+    return res.status(400).json({ error: 'Aryabhatta provider not loaded' });
+  }
+
+  try {
+    const results = await mod.searchKartoons(title || '', type);
+    if (!results || !results.length) return res.json({ variants: [] });
+
+    const best = results.find(r => r._id);
+    if (!best) return res.json({ variants: [] });
+
+    res.json({
+      variants: [{
+        language: 'hindi',
+        label: 'Hindi',
+        id: best._id,
+      }],
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/variants/de', async (req, res) => {
+  let { tmdbId, type = 'movie', title } = req.query;
+  if (!tmdbId) return res.status(400).json({ error: 'Missing tmdbId' });
+
+  const mod = providers['streamkiste'];
+  if (!mod || typeof mod.resolveVariant !== 'function') {
+    return res.status(400).json({ error: 'StreamKiste provider not loaded' });
+  }
+
+  try {
+    const result = await mod.resolveVariant(tmdbId, type, null, null);
+    if (!result) return res.json({ variants: [] });
+
+    const storeId = generateStreamId();
+    streamStore.set(storeId, {
+      ts: Date.now(),
+      url: result.url,
+      headers: result.headers || {},
+      type: result.type || 'mp4',
+    });
+
+    res.json({
+      variants: [{
+        language: 'german',
+        label: 'German',
+        id: tmdbId,
+        proxyUrl: `/proxy?id=${storeId}`,
+      }],
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
