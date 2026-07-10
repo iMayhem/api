@@ -31,6 +31,17 @@ const CATALOG_HEADERS = {
   Origin: CATALOG_ORIGIN,
 };
 
+function cleanText(text) {
+  if (!text) return '';
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\bthe movie\b/g, '')
+    .replace(/\bthe series\b/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
 function encodeTitle(title) {
   return Buffer.from(title, 'utf-8').toString('base64');
 }
@@ -124,6 +135,30 @@ async function getTmdbTitle(id, type) {
   }
 }
 
+async function getTmdbTitles(id, type) {
+  const titles = new Set();
+  try {
+    const mediaType = type === 'tv' ? 'tv' : 'movie';
+    const url = `${TMDB_BASE_URL}/${mediaType}/${id}?api_key=${TMDB_API_KEY}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    const primary = data?.title || data?.name || null;
+    if (primary) titles.add(primary);
+
+    const altUrl = `${TMDB_BASE_URL}/${mediaType}/${id}/alternative_titles?api_key=${TMDB_API_KEY}`;
+    const altResp = await fetch(altUrl);
+    const altData = await altResp.json();
+    const list = altData?.titles || altData?.results || [];
+    for (const item of list) {
+      const alt = item.title || item.name;
+      if (alt) titles.add(alt);
+    }
+  } catch (e) {
+    console.error('[MoovieCatalog] getTmdbTitles error:', e.message);
+  }
+  return Array.from(titles);
+}
+
 async function fetchMetadata(type, id) {
   const data = await fetchJson(`${CATALOG_API}/${type}/${id}`, {
     'Content-Type': 'application/json',
@@ -131,16 +166,20 @@ async function fetchMetadata(type, id) {
   return data?.results?.[0] || null;
 }
 
-async function findLanguageVariants(meta) {
+async function findLanguageVariants(meta, season, episode) {
   if (!meta || !meta.title) return [];
   const parsed = parseCatalogTitle(meta.title);
   const baseTitle = parsed.displayTitle;
   const primaryId = String(meta.id);
   const primaryLangs = parsed.languages;
 
+  const s = parseInt(season) || 0;
+  const e = parseInt(episode) || 0;
+
   let results;
   try {
-    results = await searchCatalog(baseTitle);
+    const searchQuery = baseTitle.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    results = await searchCatalog(searchQuery);
   } catch {
     return [];
   }
@@ -151,7 +190,7 @@ async function findLanguageVariants(meta) {
     const rId = String(r.id);
     if (rId === primaryId) continue;
     const p = parseCatalogTitle(r.title || '');
-    if (p.displayTitle.toLowerCase() === baseTitle.toLowerCase()) {
+    if (cleanText(p.displayTitle) === cleanText(baseTitle)) {
       for (const lang of p.languages) {
         const key = lang.toLowerCase();
         if (seen.has(key)) continue;
@@ -161,6 +200,8 @@ async function findLanguageVariants(meta) {
           language: lang,
           catalogId: rId,
           media_type: r.media_type,
+          season: s || undefined,
+          episode: e || undefined,
         });
       }
     }
@@ -247,69 +288,71 @@ async function getStreams(id, type, season, episode, rawQuery) {
   try {
     const tid = String(id);
     let meta = null;
-    let title = rawQuery;
-
-    if (!title && /^\d+$/.test(tid)) {
-      title = await getTmdbTitle(tid, type);
-    }
-
-    if (title) {
-      const results = await searchCatalog(title);
-      const cleanTarget = title.toLowerCase().replace(/[^a-z0-9]/g, '');
-      for (const r of results) {
-        const p = parseCatalogTitle(r.title || '');
-        const cleanCatalog = p.displayTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (cleanCatalog === cleanTarget) {
-          const catType = r.media_type === 'tv' ? 'tv' : 'movie';
-          const tempMeta = await fetchMetadata(catType, r.id);
-          if (tempMeta && tempMeta.subjectid) {
-            meta = tempMeta;
-            break;
-          }
-        }
+    
+    let searchTitles = [];
+    if (rawQuery) searchTitles.push(rawQuery);
+    
+    if (/^\d+$/.test(tid)) {
+      const tmdbTitles = await getTmdbTitles(tid, type);
+      for (const t of tmdbTitles) {
+        if (!searchTitles.includes(t)) searchTitles.push(t);
       }
     }
-
-    if (!meta && /^\d+$/.test(tid)) {
-      const normalizedType = type === 'show' || type === 'tv' ? 'tv' : 'movie';
-      const tempMeta = await fetchMetadata(normalizedType, tid);
-      if (tempMeta && tempMeta.subjectid) {
-        const tmdbTitle = title || await getTmdbTitle(tid, type);
-        if (tmdbTitle) {
-          const cleanTmdb = tmdbTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
-          const p = parseCatalogTitle(tempMeta.title || '');
-          const cleanCatalog = p.displayTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
-          if (cleanCatalog === cleanTmdb) {
-            meta = tempMeta;
-          }
-        } else {
-          meta = tempMeta;
-        }
-      }
-    }
-
-    if (!meta || !meta.subjectid) return [];
 
     const servers = [1, 2, 3, 5, 6];
     const s = parseInt(season) || 0;
     const e = parseInt(episode) || 0;
-
     let streams = [];
-    for (const srv of servers) {
-      if (streams.length > 0) break;
+
+    // Try finding the matched catalog entry using the search titles
+    for (const title of searchTitles) {
+      if (meta) break;
+      if (!title || !/[a-z0-9]/i.test(cleanText(title))) continue;
       try {
-        streams = await tryResolveStreams(meta, s, e, srv);
-      } catch {
-        continue;
+        const results = await searchCatalog(title);
+        const cleanTarget = cleanText(title);
+        for (const r of results) {
+          if (meta) break;
+          const p = parseCatalogTitle(r.title || '');
+          const cleanCatalog = cleanText(p.displayTitle);
+          
+          // Check if clean catalog title matches ANY of our search titles
+          const isMatch = searchTitles.some(st => cleanText(st) === cleanCatalog);
+          if (isMatch) {
+            const catType = r.media_type === 'tv' ? 'tv' : 'movie';
+            const tempMeta = await fetchMetadata(catType, r.id);
+            if (tempMeta && tempMeta.subjectid) {
+              // Try resolving streams for this metadata entry
+              let tempStreams = [];
+              for (const srv of servers) {
+                if (tempStreams.length > 0) break;
+                try {
+                  tempStreams = await tryResolveStreams(tempMeta, s, e, srv);
+                } catch {
+                  continue;
+                }
+              }
+              if (tempStreams.length > 0) {
+                meta = tempMeta;
+                streams = tempStreams;
+                break;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        // Continue to next title on search failure
       }
     }
+
+    if (!meta || !meta.subjectid) return [];
 
     streams.sort((a, b) => {
       const rank = { '1080P': 0, '720P': 1, '480P': 2, Auto: 3 };
       return (rank[a.quality] ?? 9) - (rank[b.quality] ?? 9);
     });
 
-    const languageVariants = await findLanguageVariants(meta);
+    const languageVariants = await findLanguageVariants(meta, s, e);
 
     return streams.map((s, idx) => {
       const cdnHeaders = resolveCdnHeaders(s.url);
