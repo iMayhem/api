@@ -47,7 +47,12 @@ function parseCatalogTitle(raw) {
     const tag = match[1].trim();
     if (tag && !languages.includes(tag)) languages.push(tag);
   }
-  const displayTitle = raw.replace(tagRegex, '').replace(/\s{2,}/g, ' ').trim();
+  const displayTitle = raw
+    .replace(tagRegex, '')
+    .replace(/\bS\d+(?:\s*-\s*S?\d+)?\b/gi, '')
+    .replace(/,/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
   return { displayTitle, languages };
 }
 
@@ -238,30 +243,47 @@ async function tryResolveStreams(meta, season, episode, server) {
   return extractStreamsFromHtml(html);
 }
 
-async function getStreams(id, type, season, episode) {
+async function getStreams(id, type, season, episode, rawQuery) {
   try {
     const tid = String(id);
     let meta = null;
+    let title = rawQuery;
 
-    if (/^\d+$/.test(tid)) {
-      meta = await fetchMetadata(type, tid);
-      if (!meta || !meta.subjectid) {
-        const title = await getTmdbTitle(tid, type);
-        if (title) {
-          const results = await searchCatalog(title);
-          for (const r of results) {
-            const catType = r.media_type === 'tv' ? 'tv' : 'movie';
-            meta = await fetchMetadata(catType, r.id);
-            if (meta && meta.subjectid) break;
+    if (!title && /^\d+$/.test(tid)) {
+      title = await getTmdbTitle(tid, type);
+    }
+
+    if (title) {
+      const results = await searchCatalog(title);
+      const cleanTarget = title.toLowerCase().replace(/[^a-z0-9]/g, '');
+      for (const r of results) {
+        const p = parseCatalogTitle(r.title || '');
+        const cleanCatalog = p.displayTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (cleanCatalog === cleanTarget) {
+          const catType = r.media_type === 'tv' ? 'tv' : 'movie';
+          const tempMeta = await fetchMetadata(catType, r.id);
+          if (tempMeta && tempMeta.subjectid) {
+            meta = tempMeta;
+            break;
           }
         }
       }
-    } else {
-      const results = await searchCatalog(tid);
-      for (const r of results) {
-        const catType = r.media_type === 'tv' ? 'tv' : 'movie';
-        meta = await fetchMetadata(catType, r.id);
-        if (meta && meta.subjectid) break;
+    }
+
+    if (!meta && /^\d+$/.test(tid)) {
+      const tempMeta = await fetchMetadata(type, tid);
+      if (tempMeta && tempMeta.subjectid) {
+        const tmdbTitle = title || await getTmdbTitle(tid, type);
+        if (tmdbTitle) {
+          const cleanTmdb = tmdbTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const p = parseCatalogTitle(tempMeta.title || '');
+          const cleanCatalog = p.displayTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (cleanCatalog === cleanTmdb) {
+            meta = tempMeta;
+          }
+        } else {
+          meta = tempMeta;
+        }
       }
     }
 
