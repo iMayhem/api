@@ -271,7 +271,8 @@ async function getStreams(id, type, season, episode, rawQuery) {
     }
 
     if (!meta && /^\d+$/.test(tid)) {
-      const tempMeta = await fetchMetadata(type, tid);
+      const normalizedType = type === 'show' || type === 'tv' ? 'tv' : 'movie';
+      const tempMeta = await fetchMetadata(normalizedType, tid);
       if (tempMeta && tempMeta.subjectid) {
         const tmdbTitle = title || await getTmdbTitle(tid, type);
         if (tmdbTitle) {
@@ -333,7 +334,8 @@ async function getStreams(id, type, season, episode, rawQuery) {
 
 async function resolveVariant(catalogId, type, season, episode) {
   try {
-    const meta = await fetchMetadata(type, catalogId);
+    const normalizedType = type === 'show' || type === 'tv' ? 'tv' : 'movie';
+    const meta = await fetchMetadata(normalizedType, catalogId);
     if (!meta || !meta.subjectid) return null;
 
     const servers = [1, 2, 3, 5, 6];
