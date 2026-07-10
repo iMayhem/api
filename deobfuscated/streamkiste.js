@@ -53,6 +53,11 @@ function titleMatchScore(searchTitle, resultTitle) {
     return Math.round((common / Math.max(sWords.size, rWords.length)) * 60);
 }
 
+function normalizeUrl(url) {
+  if (url && url.startsWith('//')) return 'https:' + url;
+  return url;
+}
+
 async function getStreams(id, type, season, episode, query) {
     if (type !== "movie") return [];
 
@@ -80,7 +85,7 @@ async function getStreams(id, type, season, episode, query) {
         .map((s, i) => ({
             name: "StreamKiste",
             title: `StreamKiste \u00b7 German \u00b7 ${s.release || "HD"}`,
-            url: s.stream,
+            url: normalizeUrl(s.stream),
             quality: s.res || s.release || "HD",
             headers: {
                 "User-Agent": USER_AGENT,
@@ -123,7 +128,7 @@ async function resolveVariant(catalogId, type, season, episode) {
     const stream = bestResult.streams[0];
     if (!stream || !stream.stream) return null;
 
-    return { url: stream.stream, type: "mp4" };
+    return { url: normalizeUrl(stream.stream), type: "mp4" };
 }
 
 module.exports = { getStreams, resolveVariant, name: "StreamKiste", supportedTypes: ["movie"] };

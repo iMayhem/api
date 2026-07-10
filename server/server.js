@@ -1050,6 +1050,40 @@ app.get('/api/resolve-variant', async (req, res) => {
   }
 });
 
+app.get('/api/variants/zh', async (req, res) => {
+  let { tmdbId, type = 'movie', title } = req.query;
+  if (!tmdbId) return res.status(400).json({ error: 'Missing tmdbId' });
+
+  const mod = providers['iyf'];
+  if (!mod || typeof mod.resolveVariant !== 'function') {
+    return res.status(400).json({ error: 'iyf.tv provider not loaded' });
+  }
+
+  try {
+    const result = await mod.resolveVariant(tmdbId, type, null, null);
+    if (!result) return res.json({ variants: [] });
+
+    const storeId = generateStreamId();
+    streamStore.set(storeId, {
+      ts: Date.now(),
+      url: result.url,
+      headers: result.headers || {},
+      type: result.type || 'm3u8',
+    });
+
+    res.json({
+      variants: [{
+        language: 'chinese',
+        label: 'Chinese',
+        id: tmdbId,
+        proxyUrl: `/proxy?id=${storeId}`,
+      }],
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Language variant endpoints for scrapers not exposed via search
 app.get('/api/variants/fss', async (req, res) => {
   let { tmdbId, type = 'movie', title } = req.query;
