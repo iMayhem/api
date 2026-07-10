@@ -26,7 +26,8 @@ function generateStreamId() {
 }
 
 function toProxyUrl(url, headers, type) {
-  if (!config.streamProxy) return url;
+  const hasHeaders = headers && typeof headers === 'object' && Object.keys(headers).length > 0;
+  if (!config.streamProxy && !hasHeaders) return url;
   const storeId = generateStreamId();
   streamStore.set(storeId, { ts: Date.now(), url, headers: headers || {}, type: type || 'mp4' });
   return `/proxy?id=${storeId}`;
@@ -562,17 +563,26 @@ app.post('/api/providers/:id/servers', (req, res) => {
 
 // Search endpoint
 app.get('/api/search', async (req, res) => {
-  const { q: query, type = 'movie', season, episode } = req.query;
+  let { q: query, type = 'movie', season, episode, provider, tmdbId } = req.query;
+  if (type === 'show') type = 'tv';
   if (!query) return res.status(400).json({ error: 'Missing query' });
 
-  const enabledProviders = getEnabledProvidersSorted();
+  let enabledProviders = [];
+  if (provider) {
+    const mod = providers[provider];
+    if (mod) {
+      enabledProviders = [[provider, config.providers[provider] || { priority: 999 }]];
+    }
+  } else {
+    enabledProviders = getEnabledProvidersSorted();
+  }
   const results = [];
   const errors = [];
 
   await Promise.allSettled(enabledProviders.map(async ([id, pConfig]) => {
     try {
       const mod = providers[id];
-      const streams = await mod.getStreams(query, type, season || null, episode || null);
+      const streams = await mod.getStreams(tmdbId || query, type, season || null, episode || null, query);
       if (streams && streams.length > 0) {
         const filtered = filterStreams(streams, id);
         if (filtered.length > 0) {
@@ -811,16 +821,30 @@ function rewriteHlsPlaylist(playlist, baseUrl, headers, host) {
     }
   }
 
-  // Rewrite non-comment lines to proxy URLs
+  // Rewrite non-comment lines and URI tags to proxy URLs
   return playlist.split('\n').map(line => {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) return line;
+    let rewrittenLine = line;
+    
+    // Rewrite URI attributes (e.g. inside EXT-X-MEDIA or EXT-X-KEY tags)
+    const uriAttrRe = /URI="([^"]+)"/gi;
+    rewrittenLine = rewrittenLine.replace(uriAttrRe, (match, url) => {
+      try {
+        const absoluteUrl = new URL(url, baseUrl).href;
+        const urlB64 = encodeB64url(absoluteUrl);
+        return `URI="${prefix}/proxy?u=${urlB64}&h=${headerB64}"`;
+      } catch {
+        return match;
+      }
+    });
+
+    const trimmed = rewrittenLine.trim();
+    if (!trimmed || trimmed.startsWith('#')) return rewrittenLine;
     try {
       const absoluteUrl = new URL(trimmed, baseUrl).href;
       const urlB64 = encodeB64url(absoluteUrl);
       return `${prefix}/proxy?u=${urlB64}&h=${headerB64}`;
     } catch {
-      return line;
+      return rewrittenLine;
     }
   }).join('\n');
 }
@@ -878,7 +902,7 @@ app.get('/proxy', async (req, res) => {
       return res.status(response.status).send(`Provider returned ${response.status}`);
     }
 
-    const forwardHeaders = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'content-disposition'];
+    const forwardHeaders = ['content-type', 'content-length', 'content-range', 'accept-ranges'];
     for (const [key, value] of response.headers) {
       if (forwardHeaders.includes(key.toLowerCase())) {
         res.setHeader(key, value);
@@ -973,7 +997,8 @@ app.get('/proxy', async (req, res) => {
 
 // Resolve a known catalogue variant (language-dubbed stream)
 app.get('/api/resolve-variant', async (req, res) => {
-  const { provider: providerId, id, type = 'movie', season, episode } = req.query;
+  let { provider: providerId, id, type = 'movie', season, episode } = req.query;
+  if (type === 'show') type = 'tv';
   if (!providerId || !id) return res.status(400).json({ error: 'Missing provider or id' });
 
   const mod = providers[providerId];
