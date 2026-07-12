@@ -1,8 +1,8 @@
 const crypto = require('crypto');
 
 const CATALOG_SECRET = 'net###@@sss';
-const CATALOG_API = 'https://api2.imdb3.shop/api';
-const SEARCH_API = 'https://api2.imdb3.shop/api/search2';
+const CATALOG_API = 'https://api2.imdb4.shop/api';
+const SEARCH_API = 'https://api2.imdb4.shop/api/search2';
 const CATALOG_REFERER = 'https://netmirror.global/';
 const CATALOG_ORIGIN = 'https://netmirror.global';
 

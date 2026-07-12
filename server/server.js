@@ -1,4 +1,6 @@
 const express = require('express');
+const http = require('http');
+const { WebSocketServer } = require('ws');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
@@ -7,6 +9,7 @@ const { Readable } = require('stream');
 const { HttpProxyAgent } = require('http-proxy-agent');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const analytics = require('./analytics');
+const { setupWebSocket } = require('./watch-together');
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 const USER_PROVIDERS_PATH = path.join(__dirname, 'providers.json');
@@ -26,11 +29,7 @@ function generateStreamId() {
 }
 
 function toProxyUrl(url, headers, type) {
-  const hasHeaders = headers && typeof headers === 'object' && Object.keys(headers).length > 0;
-  if (!config.streamProxy && !hasHeaders) return url;
-  const storeId = generateStreamId();
-  streamStore.set(storeId, { ts: Date.now(), url, headers: headers || {}, type: type || 'mp4' });
-  return `/proxy?id=${storeId}`;
+  return url;
 }
 
 function makeStreamUrlsAbsolute(mwStream, host) {
@@ -1181,7 +1180,14 @@ async function start() {
   analytics.init();
   const port = PORT || config.port;
   console.log(`Loaded ${Object.keys(providers).length} providers`);
-  app.listen(port, '0.0.0.0', () => {
+
+  const server = http.createServer(app);
+
+  const wss = new WebSocketServer({ server, path: '/ws' });
+  setupWebSocket(wss);
+  console.log('  WebSocket: /ws');
+
+  server.listen(port, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${port}`);
     console.log(`  Proxy: /proxy  |  Docs: /docs`);
     const os = require('os');

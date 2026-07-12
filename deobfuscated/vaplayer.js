@@ -20,7 +20,11 @@ function parseResolution(line) {
 }
 
 async function getStreams(id, type, season, episode) {
-    const apiUrl = API_URL.replace("%s", id).replace("%s", type);
+    let apiUrl = `https://streamdata.vaplayer.ru/api.php?tmdb=${id}&type=${type}`;
+    if (type === 'tv' && season) {
+        apiUrl += `&season=${season}`;
+        if (episode) apiUrl += `&episode=${episode}`;
+    }
     try {
         const res = await fetch(apiUrl, {
             headers: { "User-Agent": USER_AGENT, "Referer": CDN_ORIGIN + "/", "Origin": CDN_ORIGIN },
