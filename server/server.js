@@ -576,6 +576,124 @@ app.post('/api/providers/:id/servers', (req, res) => {
   res.json({ id, disabledServers: config.providers[id].disabledServers });
 });
 
+// Subtitles endpoint
+app.get('/api/subtitles', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const { tmdbId, type, season, episode } = req.query;
+
+  if (!tmdbId || !type) {
+    return res.status(400).json({ error: 'Missing tmdbId or type' });
+  }
+
+  try {
+    // 1. Get IMDB ID from TMDB
+    const mediaType = type === 'show' || type === 'tv' ? 'tv' : 'movie';
+    const tmdbKey = '439c478a771f35c05022f9feabcca01c';
+    const extUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}/external_ids?api_key=${tmdbKey}`;
+    const extResp = await fetch(extUrl);
+    const extData = await extResp.json();
+    const imdbId = extData?.imdb_id;
+
+    if (!imdbId) {
+      return res.json({ captions: [] });
+    }
+
+    // 2. Query OpenSubtitles
+    const imdbClean = imdbId.startsWith('tt') ? imdbId.slice(2) : imdbId;
+    let openSubUrl = `https://rest.opensubtitles.org/search/imdbid-${imdbClean}`;
+    if (mediaType === 'tv' && season && episode) {
+      openSubUrl = `https://rest.opensubtitles.org/search/episode-${episode}/imdbid-${imdbClean}/season-${season}`;
+    }
+
+    const subResp = await fetch(openSubUrl, {
+      headers: {
+        'X-User-Agent': 'VLSub 0.10.2',
+      },
+    });
+
+    if (!subResp.ok) {
+      return res.json({ captions: [] });
+    }
+
+    const subData = await subResp.json();
+    if (!Array.isArray(subData)) {
+      return res.json({ captions: [] });
+    }
+
+    const languageMap = {
+      'English': 'en',
+      'Spanish': 'es',
+      'French': 'fr',
+      'German': 'de',
+      'Italian': 'it',
+      'Portuguese': 'pt',
+      'Russian': 'ru',
+      'Chinese': 'zh',
+      'Japanese': 'ja',
+      'Korean': 'ko',
+      'Arabic': 'ar',
+      'Hindi': 'hi',
+      'Dutch': 'nl',
+      'Polish': 'pl',
+      'Turkish': 'tr',
+      'Vietnamese': 'vi',
+      'Thai': 'th',
+      'Swedish': 'sv',
+      'Norwegian': 'no',
+      'Danish': 'da',
+      'Finnish': 'fi',
+      'Greek': 'el',
+      'Hebrew': 'he',
+      'Indonesian': 'id',
+      'Malay': 'ms',
+      'Romanian': 'ro',
+      'Hungarian': 'hu',
+      'Czech': 'cs',
+      'Slovak': 'sk',
+      'Ukrainian': 'uk',
+      'Filipino': 'fil',
+      'Bengali': 'bn',
+      'Telugu': 'te',
+      'Tamil': 'ta',
+      'Kannada': 'kn',
+      'Malayalam': 'ml',
+      'Marathi': 'mr',
+      'Gujarati': 'gu',
+      'Punjabi': 'pa',
+    };
+
+    const captions = [];
+
+    for (const item of subData) {
+      if (!item.SubDownloadLink) continue;
+      const downloadUrl = item.SubDownloadLink.replace('.gz', '').replace('download/', 'download/subencoding-utf8/');
+      const langCode = languageMap[item.LanguageName] || item.LanguageName.slice(0, 2).toLowerCase();
+
+      captions.push({
+        id: downloadUrl,
+        language: langCode,
+        url: downloadUrl,
+        type: item.SubFormat || 'srt',
+        needsProxy: true,
+      });
+    }
+
+    const uniqueCaptions = [];
+    const seenLangs = new Set();
+    for (const cap of captions) {
+      if (!seenLangs.has(cap.language)) {
+        seenLangs.add(cap.language);
+        uniqueCaptions.push(cap);
+      }
+    }
+
+    return res.json({ captions: uniqueCaptions });
+  } catch (err) {
+    console.error('Error fetching subtitles:', err.message);
+    return res.json({ captions: [] });
+  }
+});
+
 // Search endpoint
 app.get('/api/search', async (req, res) => {
   let { q: query, type = 'movie', season, episode, provider, tmdbId } = req.query;
