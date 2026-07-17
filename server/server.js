@@ -641,6 +641,7 @@ app.get('/api/subtitles', async (req, res) => {
         url: item.url,
         type: 'srt',
         needsProxy: true,
+        opensubtitles: true,
       });
     }
 
