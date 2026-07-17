@@ -435,17 +435,23 @@ async function getStreams(id, type, season, episode, rawQuery) {
 
     return streams.map((s, idx) => {
       const cdnHeaders = resolveCdnHeaders(s.url);
+      const headers = {
+        'User-Agent': UA,
+        Referer: cdnHeaders.Referer || CATALOG_REFERER,
+        Origin: cdnHeaders.Origin || CATALOG_ORIGIN,
+        ...cdnHeaders,
+      };
+      
+      const u = Buffer.from(s.url).toString('base64url');
+      const h = Buffer.from(JSON.stringify(headers)).toString('base64url');
+      const proxiedUrl = `https://providers.peestream.in/proxy?u=${u}&h=${h}`;
+
       return {
         name: 'MoovieCatalog',
         title: `Netflix · ${s.quality}`,
-        url: s.url,
+        url: proxiedUrl,
         quality: s.quality,
-        headers: {
-          'User-Agent': UA,
-          Referer: cdnHeaders.Referer || CATALOG_REFERER,
-          Origin: cdnHeaders.Origin || CATALOG_ORIGIN,
-          ...cdnHeaders,
-        },
+        headers,
         _languageVariants: idx === 0 ? languageVariants : undefined,
       };
     });
@@ -486,19 +492,24 @@ async function resolveVariant(catalogId, type, season, episode) {
     const best = streams[0];
     const cdnHeaders = resolveCdnHeaders(best.url);
     const lang = selectedLanguage || parseCatalogTitle(meta.title || '').languages[0] || 'Unknown';
+    const headers = {
+      'User-Agent': UA,
+      Referer: cdnHeaders.Referer || CATALOG_REFERER,
+      Origin: cdnHeaders.Origin || CATALOG_ORIGIN,
+      ...cdnHeaders,
+    };
+    
+    const u = Buffer.from(best.url).toString('base64url');
+    const h = Buffer.from(JSON.stringify(headers)).toString('base64url');
+    const proxiedUrl = `https://providers.peestream.in/proxy?u=${u}&h=${h}`;
 
     return {
       name: 'MoovieCatalog',
       title: `Netflix · ${best.quality} · ${lang}`,
-      url: best.url,
+      url: proxiedUrl,
       quality: best.quality,
       language: lang,
-      headers: {
-        'User-Agent': UA,
-        Referer: cdnHeaders.Referer || CATALOG_REFERER,
-        Origin: cdnHeaders.Origin || CATALOG_ORIGIN,
-        ...cdnHeaders,
-      },
+      headers,
     };
   } catch {
     return null;
