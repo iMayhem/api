@@ -598,82 +598,48 @@ app.get('/api/subtitles', async (req, res) => {
       return res.json({ captions: [] });
     }
 
-    // 2. Query OpenSubtitles
-    const imdbClean = imdbId.startsWith('tt') ? imdbId.slice(2) : imdbId;
-    let openSubUrl = `https://rest.opensubtitles.org/search/imdbid-${imdbClean}`;
+    // 2. Query Stremio OpenSubtitles v3 Addon
+    let stremioUrl = `https://opensubtitles-v3.strem.io/subtitles/movie/${imdbId}.json`;
     if (mediaType === 'tv' && season && episode) {
-      openSubUrl = `https://rest.opensubtitles.org/search/episode-${episode}/imdbid-${imdbClean}/season-${season}`;
+      stremioUrl = `https://opensubtitles-v3.strem.io/subtitles/series/${imdbId}:${season}:${episode}.json`;
     }
 
-    const subResp = await fetch(openSubUrl, {
-      headers: {
-        'X-User-Agent': 'VLSub 0.10.2',
-      },
-    });
-
+    const subResp = await fetch(stremioUrl);
     if (!subResp.ok) {
       return res.json({ captions: [] });
     }
 
     const subData = await subResp.json();
-    if (!Array.isArray(subData)) {
+    if (!subData || !Array.isArray(subData.subtitles)) {
       return res.json({ captions: [] });
     }
 
-    const languageMap = {
-      'English': 'en',
-      'Spanish': 'es',
-      'French': 'fr',
-      'German': 'de',
-      'Italian': 'it',
-      'Portuguese': 'pt',
-      'Russian': 'ru',
-      'Chinese': 'zh',
-      'Japanese': 'ja',
-      'Korean': 'ko',
-      'Arabic': 'ar',
-      'Hindi': 'hi',
-      'Dutch': 'nl',
-      'Polish': 'pl',
-      'Turkish': 'tr',
-      'Vietnamese': 'vi',
-      'Thai': 'th',
-      'Swedish': 'sv',
-      'Norwegian': 'no',
-      'Danish': 'da',
-      'Finnish': 'fi',
-      'Greek': 'el',
-      'Hebrew': 'he',
-      'Indonesian': 'id',
-      'Malay': 'ms',
-      'Romanian': 'ro',
-      'Hungarian': 'hu',
-      'Czech': 'cs',
-      'Slovak': 'sk',
-      'Ukrainian': 'uk',
-      'Filipino': 'fil',
-      'Bengali': 'bn',
-      'Telugu': 'te',
-      'Tamil': 'ta',
-      'Kannada': 'kn',
-      'Malayalam': 'ml',
-      'Marathi': 'mr',
-      'Gujarati': 'gu',
-      'Punjabi': 'pa',
+    const lang3to2 = {
+      'eng': 'en', 'fre': 'fr', 'fra': 'fr', 'spa': 'es', 'ger': 'de', 'deu': 'de',
+      'ita': 'it', 'por': 'pt', 'rus': 'ru', 'chi': 'zh', 'zho': 'zh', 'jpn': 'ja',
+      'kor': 'ko', 'ara': 'ar', 'hin': 'hi', 'dut': 'nl', 'nld': 'nl', 'pol': 'pl',
+      'tur': 'tr', 'vie': 'vi', 'tha': 'th', 'swe': 'sv', 'nor': 'no', 'dan': 'da',
+      'fin': 'fi', 'gre': 'el', 'ell': 'el', 'heb': 'he', 'ind': 'id', 'msa': 'ms',
+      'may': 'ms', 'rum': 'ro', 'ron': 'ro', 'hun': 'hu', 'cze': 'cs', 'ces': 'cs',
+      'slo': 'sk', 'slk': 'sk', 'ukr': 'uk', 'fil': 'fil', 'ben': 'bn', 'tel': 'te',
+      'tam': 'ta', 'kan': 'kn', 'mal': 'ml', 'mar': 'mr', 'guj': 'gu', 'pan': 'pa',
+      'srp': 'sr', 'hrv': 'hr', 'bul': 'bg', 'slv': 'sl', 'lav': 'lv', 'est': 'et',
+      'lit': 'lt', 'per': 'fa', 'fas': 'fa', 'aze': 'az', 'kat': 'ka', 'sqi': 'sq', 'alb': 'sq'
     };
 
     const captions = [];
 
-    for (const item of subData) {
-      if (!item.SubDownloadLink) continue;
-      const downloadUrl = item.SubDownloadLink.replace('.gz', '').replace('download/', 'download/subencoding-utf8/');
-      const langCode = languageMap[item.LanguageName] || item.LanguageName.slice(0, 2).toLowerCase();
+    for (const item of subData.subtitles) {
+      if (!item.url) continue;
+      
+      const rawLang = (item.lang || 'eng').toLowerCase();
+      const langCode = lang3to2[rawLang] || rawLang.slice(0, 2);
 
       captions.push({
-        id: downloadUrl,
+        id: item.url,
         language: langCode,
-        url: downloadUrl,
-        type: item.SubFormat || 'srt',
+        url: item.url,
+        type: 'srt',
         needsProxy: true,
       });
     }
