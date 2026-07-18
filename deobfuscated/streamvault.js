@@ -28,24 +28,26 @@ async function verifyHlsStream(url) {
         const masterText = await masterRes.text();
         if (!masterText.startsWith("#EXTM3U")) return false;
 
-        const lines = masterText.split("\n");
-        let variantUrl = null;
-        for (const line of lines) {
-            if (line.startsWith("http")) { variantUrl = line; break; }
-        }
-
         let playlistText = masterText;
-        if (variantUrl) {
-            const varRes = await fetch(variantUrl, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(6000) });
-            if (!varRes.ok) return false;
-            playlistText = await varRes.text();
-            if (!playlistText.startsWith("#EXTM3U")) return false;
+        if (masterText.includes("#EXT-X-STREAM-INF")) {
+            // It's a multivariant playlist, we need to extract and fetch the variant stream playlist
+            const lines = masterText.split("\n");
+            let variantUrl = null;
+            for (const line of lines) {
+                if (line.trim().startsWith("http")) { variantUrl = line.trim(); break; }
+            }
+            if (variantUrl) {
+                const varRes = await fetch(variantUrl, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(6000) });
+                if (!varRes.ok) return false;
+                playlistText = await varRes.text();
+                if (!playlistText.startsWith("#EXTM3U")) return false;
+            }
         }
 
         const segLines = playlistText.split("\n");
         let segUrl = null;
         for (const line of segLines) {
-            if (line.startsWith("http")) { segUrl = line; break; }
+            if (line.trim().startsWith("http")) { segUrl = line.trim(); break; }
         }
         if (!segUrl) return false;
 
@@ -68,17 +70,11 @@ async function getStreams(id, type, season, episode) {
 
         const results = await Promise.allSettled(data.streams.map(async (s) => {
             const streamType = s.type === "mp4" ? "MP4" : "HLS";
-            try {
-                const head = await fetch(s.url, { method: "HEAD", headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(4000) });
-                if (head.status >= 400) return null;
-            } catch (e) {
-                return null;
-            }
             if (streamType === "HLS") {
                 const valid = await verifyHlsStream(s.url);
                 if (!valid) return null;
             } else {
-                // For MP4 streams, verify content via partial GET (HEAD is not enough)
+                // For MP4 streams, verify content via partial GET
                 try {
                     const peekRes = await fetch(s.url, { method: "GET", headers: { "User-Agent": USER_AGENT, Range: "bytes=0-200" }, signal: AbortSignal.timeout(5000) });
                     if (!peekRes.ok && peekRes.status !== 206) return null;
