@@ -377,6 +377,7 @@ app.get('/scrape', async (req, res) => {
   const enabledProviders = getEnabledProvidersSorted();
   const sourceIds = enabledProviders.map(([id]) => id);
 
+  let completedAny = false;
   sse.emit('init', { sourceIds });
 
   for (const [id, pConfig] of enabledProviders) {
@@ -414,8 +415,8 @@ app.get('/scrape', async (req, res) => {
           makeStreamUrlsAbsolute(mwStream, req.headers.host);
           const output = { sourceId: id, stream: mwStream };
           sse.emit('completed', output);
-          res.end();
-          return;
+          completedAny = true;
+          break; // Go to next provider
         }
         if (!foundValid) {
           sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streamable qualities/sources found' });
@@ -428,7 +429,7 @@ app.get('/scrape', async (req, res) => {
     }
   }
 
-  if (!sse.cancelled()) {
+  if (!sse.cancelled() && !completedAny) {
     sse.emit('noOutput', '');
   }
   res.end();
@@ -963,11 +964,19 @@ function bodyStreamFromReader(reader, firstChunk) {
 }
 
 // Proxy endpoint - supports both ID-based lookup and inline URL+headers
+app.options('/proxy', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'X-Cookie, X-Referer, X-Origin, X-User-Agent, X-Token, Range');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, X-Final-Destination, X-Set-Cookie');
+  res.status(204).end();
+});
+
 app.get('/proxy', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
 
-  const { id, u, h } = req.query;
+  const { id, u, h, destination } = req.query;
 
   let targetUrl, targetHeaders, targetType;
 
@@ -979,6 +988,22 @@ app.get('/proxy', async (req, res) => {
   } else if (u) {
     targetUrl = decodeB64url(u);
     targetHeaders = h ? JSON.parse(decodeB64url(h)) : {};
+  } else if (destination) {
+    targetUrl = destination;
+    targetHeaders = {};
+    // Forward all original request headers (except hop-by-hop and connection-specific ones)
+    const skipHeaders = new Set(['host', 'connection', 'content-length', 'transfer-encoding', 'keep-alive', 'upgrade', 'proxy-connection', 'x-token']);
+    // First, copy all original headers
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (!skipHeaders.has(key.toLowerCase()) && typeof value === 'string') {
+        targetHeaders[key] = value;
+      }
+    }
+    // Then override with provider-specific mapped headers (for @movie-web/providers compatibility)
+    if (req.headers['x-cookie']) targetHeaders['Cookie'] = req.headers['x-cookie'];
+    if (req.headers['x-referer']) targetHeaders['Referer'] = req.headers['x-referer'];
+    if (req.headers['x-origin']) targetHeaders['Origin'] = req.headers['x-origin'];
+    if (req.headers['x-user-agent']) targetHeaders['User-Agent'] = req.headers['x-user-agent'];
   } else {
     return res.status(400).send('Missing id or url parameter');
   }
@@ -1008,6 +1033,7 @@ app.get('/proxy', async (req, res) => {
         res.setHeader(key, value);
       }
     }
+    if (destination) res.setHeader('X-Final-Destination', response.url || targetUrl);
     res.status(response.status);
 
     const contentType = response.headers.get('content-type') || '';
@@ -1040,9 +1066,23 @@ app.get('/proxy', async (req, res) => {
         res.end(bodyText);
       }
     } else {
-      // Stream the response through — only block if content is clearly non-media (HTML/JSON text)
+      // Stream the response through — only block if non-video content (for media streaming contexts)
       const ct = contentType.toLowerCase();
-      if (ct.includes('html') || ct.includes('json')) {
+      if (ct.includes('json')) {
+        // JSON content should always pass through (needed for CORS proxy use cases)
+        const allChunks = [first.value];
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          allChunks.push(value);
+        }
+        const body = Buffer.concat(allChunks);
+        res.setHeader('Content-Type', ct);
+        res.setHeader('Content-Length', body.length);
+        res.end(body);
+        return;
+      }
+      if (ct.includes('html')) {
         const allChunks = [first.value];
         while (true) {
           const { done, value } = await reader.read();
@@ -1064,7 +1104,7 @@ app.get('/proxy', async (req, res) => {
         }
         // Check if it's actual HTML page content (not mislabeled binary)
         const textStart = body.toString('utf8', 0, Math.min(body.length, 100)).trim();
-        if (textStart.startsWith('<!') || textStart.startsWith('<html') || textStart.startsWith('<?xml') || textStart.startsWith('{') || textStart.startsWith('[')) {
+        if (textStart.startsWith('<!') || textStart.startsWith('<html') || textStart.startsWith('<?xml')) {
           const preview = body.toString('utf8', 0, Math.min(body.length, 300));
           console.error(`Proxy: non-video content "${ct}" for ${targetUrl}: ${preview}`);
           if (!res.headersSent) res.status(502).send(`Bad content type: ${ct}`);
@@ -1076,10 +1116,10 @@ app.get('/proxy', async (req, res) => {
         res.end(body);
         return;
       }
-      // Pass through all other content types (video, image, octet-stream, etc.)
-      const nodeStream = bodyStreamFromReader(reader, first.value);
-      req.on('close', () => nodeStream.destroy());
-      nodeStream.pipe(res);
+    // Pass through all other content types (video, image, octet-stream, etc.)
+    const nodeStream = bodyStreamFromReader(reader, first.value);
+    req.on('close', () => nodeStream.destroy());
+    nodeStream.pipe(res);
     }
   } catch (e) {
     console.error('Proxy error:', e.message);
