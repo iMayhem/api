@@ -244,6 +244,39 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ============ Authentication & Locked Panel ============
+const ADMIN_USERNAME = process.env.ADMIN_USER || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'peestream2026';
+const authSessions = new Set();
+
+function isReqAuthenticated(req) {
+  const authHeader = req.headers['authorization'];
+  const token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7) : (req.headers['x-admin-token'] || req.query.token);
+  return token && authSessions.has(token);
+}
+
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body || {};
+  if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+    const token = crypto.randomBytes(32).toString('hex');
+    authSessions.add(token);
+    return res.json({ success: true, token });
+  }
+  return res.status(401).json({ success: false, error: 'Invalid username or password' });
+});
+
+app.get('/api/auth/check', (req, res) => {
+  res.json({ authenticated: Boolean(isReqAuthenticated(req)) });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7) : req.headers['x-admin-token'];
+  if (token) authSessions.delete(token);
+  res.json({ success: true });
+});
+
+
 // ============ movie-web SSE Provider API (before static to ensure priority) ============
 
 function parseQuality(q) {

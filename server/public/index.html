@@ -28,6 +28,7 @@
     <button class="nav-btn" data-view="info" onclick="switchView('info')">📡 Connection</button>
     <a href="/docs" class="nav-btn" style="display:block;text-decoration:none">📖 Docs</a>
     <a href="/embed" class="nav-btn" style="display:block;text-decoration:none">📺 Embed</a>
+    <button class="nav-btn logout-btn" onclick="handleLogout()" style="margin-top:12px;border:1px solid rgba(239,68,68,0.3);color:#ef4444">🔒 Lock Panel</button>
   </div>
   <div class="sidebar-footer">
     <span id="providerCount">Loading...</span>
@@ -271,6 +272,28 @@
     </div>
   </div>
 </main>
+
+<!-- Lock Screen Modal Panel -->
+<div id="lockScreenOverlay" class="lock-overlay">
+  <div class="lock-card">
+    <div class="lock-icon">🔒</div>
+    <div class="lock-badge">LOCKED PANEL</div>
+    <h2 style="margin:8px 0 4px 0;font-size:22px;color:var(--text,#fff)">StreamScraper Hub</h2>
+    <p style="margin:0 0 20px 0;font-size:13px;color:var(--text2,#888)">Enter administrator credentials to unlock</p>
+    <form id="lockLoginForm" onsubmit="handleLoginSubmit(event)">
+      <div class="lock-field">
+        <label for="lockUsername">Username</label>
+        <input type="text" id="lockUsername" placeholder="admin" required autocomplete="username">
+      </div>
+      <div class="lock-field">
+        <label for="lockPassword">Password</label>
+        <input type="password" id="lockPassword" placeholder="••••••••" required autocomplete="current-password">
+      </div>
+      <div id="lockErrorMsg" class="lock-error" style="display:none"></div>
+      <button type="submit" id="lockSubmitBtn" class="lock-btn">Unlock Panel 🔑</button>
+    </form>
+  </div>
+</div>
 
 <script src="https://cdn.plyr.io/3.7.8/plyr.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>

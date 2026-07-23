@@ -28,11 +28,101 @@ let preferredAudioLang = localStorage.getItem('preferredAudioLang') || '';
 let currentLanguageVariants = [];
 let currentSearchContext = { type: 'movie', season: null, episode: null };
 
+// ── Authentication & Lock Panel ─────────────────────────────────────────
+let adminToken = localStorage.getItem('adminToken') || '';
+
+function showLockScreen() {
+  const overlay = document.getElementById('lockScreenOverlay');
+  if (overlay) overlay.classList.remove('hidden');
+  const err = document.getElementById('lockErrorMsg');
+  if (err) err.style.display = 'none';
+}
+
+function hideLockScreen() {
+  const overlay = document.getElementById('lockScreenOverlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+async function checkAuthStatus() {
+  if (!adminToken) {
+    showLockScreen();
+    return false;
+  }
+  try {
+    const res = await fetch('/api/auth/check', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    const data = await res.json();
+    if (data && data.authenticated) {
+      hideLockScreen();
+      return true;
+    }
+  } catch (e) {}
+  showLockScreen();
+  return false;
+}
+
+async function handleLoginSubmit(e) {
+  e.preventDefault();
+  const username = document.getElementById('lockUsername').value.trim();
+  const password = document.getElementById('lockPassword').value;
+  const btn = document.getElementById('lockSubmitBtn');
+  const err = document.getElementById('lockErrorMsg');
+  
+  err.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Verifying...';
+  
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (res.ok && data.token) {
+      adminToken = data.token;
+      localStorage.setItem('adminToken', adminToken);
+      hideLockScreen();
+      const currentView = localStorage.getItem('activeView') || 'search';
+      switchView(currentView);
+    } else {
+      err.textContent = data.error || 'Invalid username or password';
+      err.style.display = 'block';
+    }
+  } catch (ex) {
+    err.textContent = 'Connection error. Please try again.';
+    err.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Unlock Panel 🔑';
+  }
+}
+
+async function handleLogout() {
+  if (adminToken) {
+    fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    }).catch(() => {});
+  }
+  adminToken = '';
+  localStorage.removeItem('adminToken');
+  showLockScreen();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  checkAuthStatus();
+});
+
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts
-  });
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (adminToken) headers['Authorization'] = `Bearer ${adminToken}`;
+  const res = await fetch(path, { ...opts, headers });
+  if (res.status === 401 && !path.includes('/api/auth/login')) {
+    showLockScreen();
+    throw new Error('Authentication required');
+  }
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
