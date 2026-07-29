@@ -110,9 +110,25 @@ function addEvent(type, sessionId, ip, userAgent, referrer, extra) {
   broadcast({ type: 'stats', stats: getStats() });
 }
 
+function getDomainFromReferrer(ref, extra) {
+  let target = extra && extra.domain ? extra.domain : '';
+  if (!target && extra && extra.referrer) target = extra.referrer;
+  if (!target && ref) target = ref;
+  if (!target) return 'Direct / Standalone';
+
+  try {
+    const raw = target.startsWith('http') ? target : `http://${target}`;
+    const parsed = new URL(raw);
+    return parsed.hostname || target;
+  } catch (e) {
+    return target;
+  }
+}
+
 function getStats() {
   const now = Date.now();
-  const realtimeCount = Object.keys(data.realtimeSessions).filter(sid => now - data.realtimeSessions[sid].lastPing < REALTIME_TTL).length;
+  const activeSids = Object.keys(data.realtimeSessions).filter(sid => now - data.realtimeSessions[sid].lastPing < REALTIME_TTL);
+  const realtimeCount = activeSids.length;
 
   const events24h = data.events.filter(e => now - e.time < 86400000);
   const plays24h = events24h.filter(e => e.type === 'play').length;
@@ -120,18 +136,49 @@ function getStats() {
 
   // Hourly breakdown for last 24h
   const hourly = {};
+  // Domain breakdown
+  const domainStats = {};
+  // Top Media
+  const mediaStats = {};
+
   for (const e of events24h) {
     const hour = new Date(e.time).toISOString().slice(0, 13) + ':00Z';
     if (!hourly[hour]) hourly[hour] = { pageViews: 0, plays: 0, errors: 0 };
     hourly[hour].pageViews += e.type === 'pageview' ? 1 : 0;
     hourly[hour].plays += e.type === 'play' ? 1 : 0;
     hourly[hour].errors += e.type === 'error' ? 1 : 0;
+
+    const domain = getDomainFromReferrer(e.referrer, e.data);
+    if (!domainStats[domain]) domainStats[domain] = { domain, views: 0, plays: 0, errors: 0, activeNow: 0 };
+    if (e.type === 'pageview') domainStats[domain].views++;
+    if (e.type === 'play') domainStats[domain].plays++;
+    if (e.type === 'error') domainStats[domain].errors++;
+
+    if (e.data && (e.data.title || e.data.tmdbId)) {
+      const mediaKey = e.data.title ? `${e.data.title}${e.data.mediaType ? ' (' + e.data.mediaType + ')' : ''}` : `TMDB: ${e.data.tmdbId}`;
+      if (!mediaStats[mediaKey]) mediaStats[mediaKey] = { title: mediaKey, views: 0, plays: 0 };
+      if (e.type === 'pageview') mediaStats[mediaKey].views++;
+      if (e.type === 'play') mediaStats[mediaKey].plays++;
+    }
   }
+
+  // Count active live sessions per domain
+  for (const sid of activeSids) {
+    const sess = data.realtimeSessions[sid];
+    const domain = getDomainFromReferrer(sess.referrer, sess);
+    if (!domainStats[domain]) domainStats[domain] = { domain, views: 0, plays: 0, errors: 0, activeNow: 0 };
+    domainStats[domain].activeNow++;
+  }
+
+  const topDomains = Object.values(domainStats).sort((a, b) => b.views - a.views);
+  const topMedia = Object.values(mediaStats).sort((a, b) => b.plays - a.plays).slice(0, 15);
 
   return {
     totals: data.totals,
     realtime: { activeNow: realtimeCount, sessions: data.realtimeSessions },
     hourly,
+    topDomains,
+    topMedia,
     last24h: { plays: plays24h, pageViews: views24h },
     eventsCount: data.events.length,
     sessionsCount: Object.keys(data.sessions).length,

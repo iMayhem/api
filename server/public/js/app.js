@@ -1211,6 +1211,36 @@ function renderAnalyticsStats(stats) {
     container.innerHTML = html;
   }
 
+  // Embedding Domains
+  var domHtml = '';
+  var topDomains = stats.topDomains || [];
+  if (topDomains.length === 0) {
+    domHtml = '<div class="an-empty">No website data yet</div>';
+  } else {
+    domHtml = '<table class="an-table"><thead><tr><th>Domain / Website</th><th>Views</th><th>Plays</th><th>Active Live</th></tr></thead><tbody>';
+    topDomains.forEach(function(d) {
+      domHtml += '<tr><td><strong>' + (d.domain || 'Direct') + '</strong></td><td>' + (d.views || 0) + '</td><td>' + (d.plays || 0) + '</td><td>' + (d.activeNow ? '<span class="an-type-badge an-type-play">🟢 ' + d.activeNow + ' live</span>' : '-') + '</td></tr>';
+    });
+    domHtml += '</tbody></table>';
+  }
+  var elDom = document.getElementById('anTopDomains');
+  if (elDom) elDom.innerHTML = domHtml;
+
+  // Top Media
+  var medHtml = '';
+  var topMedia = stats.topMedia || [];
+  if (topMedia.length === 0) {
+    medHtml = '<div class="an-empty">No media data yet</div>';
+  } else {
+    medHtml = '<table class="an-table"><thead><tr><th>Title / Media</th><th>Views</th><th>Plays</th></tr></thead><tbody>';
+    topMedia.forEach(function(m) {
+      medHtml += '<tr><td>' + (m.title || 'Unknown') + '</td><td>' + (m.views || 0) + '</td><td>' + (m.plays || 0) + '</td></tr>';
+    });
+    medHtml += '</tbody></table>';
+  }
+  var elMed = document.getElementById('anTopMedia');
+  if (elMed) elMed.innerHTML = medHtml;
+
   // Active users
   var activeHtml = '';
   var sessions = stats.realtime.sessions || {};
