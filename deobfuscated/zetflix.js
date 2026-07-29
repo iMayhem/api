@@ -27,36 +27,6 @@ function transliterate(text) {
     .trim();
 }
 
-// Levenshtein distance for fuzzy slug matching (e.g. "titanic" vs "titanik")
-function levenshtein(a, b) {
-  const m = a.length, n = b.length;
-  const dp = Array.from({ length: m + 1 }, (_, i) =>
-    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
-  );
-  for (let i = 1; i <= m; i++)
-    for (let j = 1; j <= n; j++)
-      dp[i][j] = a[i-1] === b[j-1]
-        ? dp[i-1][j-1]
-        : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
-  return dp[m][n];
-}
-
-// Returns true if slug and candidate are close enough to be the same title
-function slugFuzzyMatch(slug, candidate) {
-  if (!slug || !candidate) return false;
-  // Exact contains check first
-  if (slug.includes(candidate) || candidate.includes(slug)) return true;
-  // Allow up to 2 edits per 8 chars of the shorter string
-  const shorter = slug.length < candidate.length ? slug : candidate;
-  const longer  = slug.length < candidate.length ? candidate : slug;
-  // Only fuzzy-compare the first word (before first dash) to avoid false positives
-  const slugWord = shorter.split('-')[0];
-  const candWord = longer.split('-')[0];
-  if (slugWord.length < 4) return false; // too short to fuzzy
-  const maxDist = Math.floor(slugWord.length / 5) + 1; // 1 edit per 5 chars, min 1
-  return levenshtein(slugWord, candWord) <= maxDist;
-}
-
 function cleanTitle(title) {
   if (!title) return "";
   return title
@@ -142,16 +112,12 @@ async function extractStreams(pageUrl, type, season, episode) {
       embeds.push(match[1]);
     }
     
-    for (const embed of embeds) {
-      let embedUrl;
-      try {
-        // Player URLs may be absolute, protocol-relative, or relative paths.
-        embedUrl = new URL(embed, pageUrl).toString();
-      } catch {
-        continue;
+    for (let embedUrl of embeds) {
+      if (embedUrl.startsWith('//')) {
+        embedUrl = 'https:' + embedUrl;
       }
       
-      // Keep s and e parameters on the embed URL as a fallback, but we will mostly rely on our HTML seasons parser
+      // If it is a TV show, pass season/episode to the Collaps embed player
       if (type === 'tv') {
         const urlObj = new URL(embedUrl);
         urlObj.searchParams.set('s', String(season || 1));
@@ -159,7 +125,7 @@ async function extractStreams(pageUrl, type, season, episode) {
         embedUrl = urlObj.toString();
       }
       
-      const streamUrl = await resolveCollaps(embedUrl, type, season, episode);
+      const streamUrl = await resolveCollaps(embedUrl);
       if (streamUrl) {
         streams.push({
           quality: '1080P',
@@ -175,100 +141,18 @@ async function extractStreams(pageUrl, type, season, episode) {
   }
 }
 
-async function resolveCollaps(embedUrl, type, season, episode) {
+async function resolveCollaps(embedUrl) {
   try {
     const resp = await fetch(embedUrl, {
       headers: {
         ...HEADERS,
         'Referer': 'https://www.zetflix.club/'
-      }
+      },
+      // Bypass SSL verification issues on the Collaps mirror domains
+      agent: new (require('https').Agent)({ rejectUnauthorized: false })
     });
     if (!resp.ok) return null;
     const html = await resp.text();
-    
-    if (type === 'tv' || type === 'show') {
-      const seasonsIdx = html.indexOf("seasons:");
-      if (seasonsIdx !== -1) {
-        const startBracket = html.indexOf("[", seasonsIdx);
-        if (startBracket !== -1) {
-          let count = 0;
-          let endBracket = -1;
-          for (let i = startBracket; i < html.length; i++) {
-            if (html[i] === '[') {
-              count++;
-            } else if (html[i] === ']') {
-              count--;
-              if (count === 0) {
-                endBracket = i;
-                break;
-              }
-            }
-          }
-          if (endBracket !== -1) {
-            const seasonsStr = html.substring(startBracket, endBracket + 1);
-
-            // Find all season blocks: {"season":X or season:X
-            const seasonRegex = /(?:\{|,)\s*(?:"season"|season)\s*:\s*(\d+)/g;
-            let match;
-            const seasonOffsets = [];
-            while ((match = seasonRegex.exec(seasonsStr)) !== null) {
-              seasonOffsets.push({
-                season: parseInt(match[1], 10),
-                index: match.index
-              });
-            }
-
-            if (seasonOffsets.length > 0) {
-              seasonOffsets.sort((a, b) => a.index - b.index);
-
-              const targetSeasonNum = parseInt(season, 10) || 1;
-              const seasonIndex = seasonOffsets.findIndex(o => o.season === targetSeasonNum);
-              if (seasonIndex !== -1) {
-                const startIdx = seasonOffsets[seasonIndex].index;
-                const endIdx = (seasonIndex + 1 < seasonOffsets.length)
-                  ? seasonOffsets[seasonIndex + 1].index
-                  : seasonsStr.length;
-
-                const seasonBlock = seasonsStr.substring(startIdx, endIdx);
-
-                // Inside this season block, find the episodes array
-                const epRegex = /(?:\{|,)\s*(?:"episode"|episode)\s*:\s*["']?(\d+)["']?/g;
-                const epOffsets = [];
-                let epMatch;
-                while ((epMatch = epRegex.exec(seasonBlock)) !== null) {
-                  epOffsets.push({
-                    episode: parseInt(epMatch[1], 10),
-                    index: epMatch.index
-                  });
-                }
-
-                if (epOffsets.length > 0) {
-                  epOffsets.sort((a, b) => a.index - b.index);
-
-                  const targetEpNum = parseInt(episode, 10) || 1;
-                  const epIndex = epOffsets.findIndex(o => o.episode === targetEpNum);
-                  if (epIndex !== -1) {
-                    const epStart = epOffsets[epIndex].index;
-                    const epEnd = (epIndex + 1 < epOffsets.length)
-                      ? epOffsets[epIndex + 1].index
-                      : seasonBlock.length;
-
-                    const epBlock = seasonBlock.substring(epStart, epEnd);
-
-                    const hlsMatch = epBlock.match(/(?:"hls"|hls)\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i);
-                    if (hlsMatch) {
-                      let url = hlsMatch[1];
-                      url = url.replace(/\\u0026/g, '&').replace(/u0026/g, '&');
-                      return url.split('\\').join('');
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
     
     const hlsMatch = html.match(/"hls"\s*:\s*"([^"]+\.m3u8[^"]*)"/i) || 
                      html.match(/hls\s*:\s*"([^"]+\.m3u8[^"]*)"/i);
@@ -293,10 +177,7 @@ async function getStreams(id, type, season, episode, rawQuery) {
     if (info) {
       for (const t of info.titles) {
         searchTitles.add(t);
-        const slug = transliterate(t);
-        if (/[a-z0-9]/.test(slug)) {
-          transSlugs.push(slug);
-        }
+        transSlugs.push(transliterate(t));
       }
     }
     
@@ -308,19 +189,14 @@ async function getStreams(id, type, season, episode, rawQuery) {
     let matchedPost = null;
     const allTitlesList = Array.from(searchTitles);
     
-    // Try searching each known title and fuzzy-match the returned slug
+    // First try searching the title directly
     for (const title of allTitlesList) {
       const results = await search(title);
       if (results && results.length > 0) {
         matchedPost = results.find(r => {
           const transTitle = transliterate(title);
-          const hasAlphanumeric = /[a-z0-9]/.test(transTitle);
-          if (!hasAlphanumeric) return false;
-
-          // Exact substring match first
-          if (slugFuzzyMatch(r.slug, transTitle)) return true;
-          // Then try all transliterated slugs from Russian/English TMDB titles
-          return transSlugs.some(slug => slugFuzzyMatch(r.slug, slug));
+          return r.slug.includes(transTitle) || transTitle.includes(r.slug) ||
+                 transSlugs.some(slug => r.slug.includes(slug) || slug.includes(r.slug));
         });
         if (matchedPost) break;
       }
@@ -335,12 +211,14 @@ async function getStreams(id, type, season, episode, rawQuery) {
     const streams = await extractStreams(matchedPost.url, type, season, episode);
     
     if (streams.length > 0) {
-      // Only emit one variant entry (best stream). The resolveVariant will pick the best CDN.
-      streams[0]._languageVariants = [{
-        language: 'Russian',
-        catalogId: `${id}:${type}:${season || 0}:${episode || 0}`,
-        media_type: type
-      }];
+      const languageVariants = streams.map((s, idx) => {
+        return {
+          language: 'Russian',
+          catalogId: `${id}:${type}:${season || 0}:${episode || 0}:${idx}`,
+          media_type: type
+        };
+      });
+      streams[0]._languageVariants = languageVariants;
     }
     
     return streams.map((s) => ({
@@ -367,9 +245,10 @@ async function resolveVariant(catalogId, type, season, episode) {
     const tmdbId = parts[0];
     const s = parts[2];
     const e = parts[3];
+    const idx = parseInt(parts[4]) || 0;
     
     const streams = await getStreams(tmdbId, type, s, e);
-    const target = streams[0];
+    const target = streams[idx] || streams[0];
     if (!target) return null;
     
     return {
@@ -377,7 +256,6 @@ async function resolveVariant(catalogId, type, season, episode) {
       title: target.title,
       url: target.url,
       quality: target.quality,
-      language: 'Russian',
       headers: target.headers,
       type: 'm3u8'
     };

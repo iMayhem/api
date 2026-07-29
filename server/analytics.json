@@ -1,14 +1,52 @@
 {
   "totals": {
-    "pageViews": 0,
+    "pageViews": 2,
     "plays": 0,
     "errors": 0,
     "qualityChanges": 0,
     "audioChanges": 0,
-    "uniqueIps": [],
+    "uniqueIps": [
+      "2409:40d0:3023:dabf:9e50:b5f0:722:58ca"
+    ],
     "watchTimeMs": 0
   },
-  "events": [],
-  "sessions": {},
+  "events": [
+    {
+      "id": "fba7d780-530c-463c-b65a-2fbf0412bc86",
+      "type": "pageview",
+      "sessionId": "mrqh2hn9vj31hauy",
+      "ip": "2409:40d0:3023:dabf:9e50:b5f0:722:58ca",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/",
+      "time": 1784385524777,
+      "data": {
+        "url": "https://providers.peestream.in/"
+      }
+    },
+    {
+      "id": "ca4a8419-eb34-44f8-8d9e-e0dd0cecb5e7",
+      "type": "pageview",
+      "sessionId": "mrqh2hn9vj31hauy",
+      "ip": "2409:40d0:3023:dabf:9e50:b5f0:722:58ca",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/",
+      "time": 1784386063177,
+      "data": {
+        "url": "https://providers.peestream.in/"
+      }
+    }
+  ],
+  "sessions": {
+    "mrqh2hn9vj31hauy": {
+      "firstSeen": 1784385524777,
+      "lastSeen": 1784386063177,
+      "ip": "2409:40d0:3023:dabf:9e50:b5f0:722:58ca",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/",
+      "pageViews": 2,
+      "plays": 0,
+      "errors": 0
+    }
+  },
   "realtimeSessions": {}
 }
