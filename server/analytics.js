@@ -57,14 +57,18 @@ function getClientIp(req) {
   return req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(',')[0].trim() : req.ip || req.socket.remoteAddress || 'unknown';
 }
 
-function addEvent(type, sessionId, ip, userAgent, referrer, extra) {
+function addEvent(type, sessionId, ip, userAgent, httpReferrer, extra) {
+  const effectiveRef = (extra && extra.referrer) || (extra && extra.domain) || httpReferrer || '';
+  const domain = getDomainFromReferrer(httpReferrer, extra);
+
   const event = {
     id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     type,
     sessionId,
     ip,
     userAgent,
-    referrer,
+    referrer: effectiveRef,
+    domain: domain,
     time: Date.now(),
     data: extra || {},
   };
@@ -72,10 +76,21 @@ function addEvent(type, sessionId, ip, userAgent, referrer, extra) {
   if (data.events.length > MAX_EVENTS) data.events = data.events.slice(-MAX_EVENTS);
 
   if (!data.sessions[sessionId]) {
-    data.sessions[sessionId] = { firstSeen: Date.now(), lastSeen: Date.now(), ip, userAgent, referrer, pageViews: 0, plays: 0, errors: 0 };
+    data.sessions[sessionId] = { 
+      firstSeen: Date.now(), 
+      lastSeen: Date.now(), 
+      ip, 
+      userAgent, 
+      referrer: effectiveRef, 
+      domain: domain,
+      pageViews: 0, 
+      plays: 0, 
+      errors: 0 
+    };
   }
   const sess = data.sessions[sessionId];
   sess.lastSeen = Date.now();
+  if (domain && domain !== 'Direct / Standalone') sess.domain = domain;
 
   const totals = data.totals;
   switch (type) {
@@ -98,28 +113,65 @@ function addEvent(type, sessionId, ip, userAgent, referrer, extra) {
     case 'audio_change':
       totals.audioChanges++;
       break;
+    case 'ping':
     case 'heartbeat':
       if (extra.duration) totals.watchTimeMs += extra.duration;
       break;
   }
 
-  // Track realtime
-  data.realtimeSessions[sessionId] = { lastPing: Date.now(), ip, userAgent, referrer, currentUrl: extra.currentUrl || '', currentStream: extra.currentStream || '' };
+  // Active stream description for live active users list
+  const activeTitle = extra.title || (extra.tmdbId ? `TMDB ${extra.tmdbId}` : '');
+  let activeStream = extra.currentStream || '';
+  if (!activeStream) {
+    if (extra.isPlaying) {
+      activeStream = `▶ Playing: ${activeTitle || 'Video'}`;
+    } else if (activeTitle) {
+      activeStream = `⏸ ${activeTitle}`;
+    } else {
+      activeStream = 'Watching Embed Player';
+    }
+  }
+
+  // Track realtime session with domain
+  data.realtimeSessions[sessionId] = { 
+    lastPing: Date.now(), 
+    ip, 
+    userAgent, 
+    referrer: effectiveRef, 
+    domain: domain,
+    currentUrl: extra.currentUrl || effectiveRef || '', 
+    currentStream: activeStream,
+    title: activeTitle,
+    isPlaying: !!extra.isPlaying
+  };
 
   broadcast({ type: 'event', event });
   broadcast({ type: 'stats', stats: getStats() });
 }
 
 function getDomainFromReferrer(ref, extra) {
-  let target = extra && extra.domain ? extra.domain : '';
-  if (!target && extra && extra.referrer) target = extra.referrer;
-  if (!target && ref) target = ref;
+  let target = '';
+  if (extra && extra.domain && extra.domain !== 'Direct / Standalone') {
+    target = extra.domain;
+  } else if (extra && extra.referrer) {
+    target = extra.referrer;
+  } else if (ref) {
+    target = ref;
+  }
+
   if (!target) return 'Direct / Standalone';
 
   try {
     const raw = target.startsWith('http') ? target : `http://${target}`;
     const parsed = new URL(raw);
-    return parsed.hostname || target;
+    const host = parsed.hostname;
+    if (host === 'providers.peestream.in' || host === 'peestream.in' || host === 'proxy.moovie.fun') {
+      if (extra && extra.referrer && !extra.referrer.includes('peestream.in') && !extra.referrer.includes('moovie.fun')) {
+        return new URL(extra.referrer.startsWith('http') ? extra.referrer : `http://${extra.referrer}`).hostname;
+      }
+      return 'Direct / Standalone';
+    }
+    return host || target;
   } catch (e) {
     return target;
   }
