@@ -140,18 +140,23 @@ function switchView(name) {
   if (name === 'info') loadInfo();
   if (name === 'player') initPlyr();
   if (name === 'embed') initEmbedView();
-  else if (embedLogSource) { embedLogSource.close(); embedLogSource = null; }
+  else {
+    if (embedLogSource) { embedLogSource.close(); embedLogSource = null; }
+    if (myLogsSource) { myLogsSource.close(); myLogsSource = null; }
+  }
   if (name === 'scraper-test') initScraperTest();
   else destroyTestPlayer();
 }
 
 // ── Embed Debug View ───────────────────────────────────────────────────
 let embedLogSource = null;
+let myLogsSource = null;
 
 function initEmbedView() {
   const prev = document.getElementById('embedTmdbId').value || '550';
   if (!document.getElementById('embedFrame').src.includes('tmdbId=')) loadEmbed(prev, 'movie');
   connectEmbedLogs();
+  connectMyLogs();
 }
 
 function loadEmbed(tmdbId, type, season, episode) {
@@ -170,6 +175,45 @@ function clearEmbedLogs() {
   document.getElementById('embedLogPanel').innerHTML = '';
 }
 
+function clearMyLogs() {
+  document.getElementById('myLogsPanel').innerHTML = '';
+}
+
+function connectMyLogs() {
+  if (myLogsSource) { myLogsSource.close(); myLogsSource = null; }
+  if (!document.getElementById('myLogsLive').checked) {
+    document.getElementById('myLogsStatus').innerText = 'disabled';
+    return;
+  }
+  const panel = document.getElementById('myLogsPanel');
+  const status = document.getElementById('myLogsStatus');
+  const mySid = sessionStorage.getItem('peestream_sid');
+  if (!mySid) {
+    status.innerText = 'no embed session yet — load the embed first';
+    status.style.color = '#f59e0b';
+    return;
+  }
+  status.innerText = 'connecting...';
+  status.style.color = '#f59e0b';
+  myLogsSource = new EventSource('/api/scrape/log');
+  myLogsSource.onopen = () => { status.innerText = `● live (${mySid})`; status.style.color = '#22c55e'; };
+  myLogsSource.onerror = () => { status.innerText = 'reconnecting...'; status.style.color = '#f59e0b'; };
+  myLogsSource.onmessage = (e) => {
+    try {
+      const entry = JSON.parse(e.data);
+      if (entry.source !== 'client' || entry.sid !== mySid) return;
+      const time = new Date(entry.time).toLocaleTimeString();
+      const colors = { info: '#8b8fa3', success: '#22c55e', warn: '#f59e0b', error: '#ef4444' };
+      const color = colors[entry.type] || '#8b8fa3';
+      const line = document.createElement('div');
+      line.style.cssText = 'white-space:pre-wrap;word-break:break-all';
+      line.innerHTML = `<span style="color:#555968">${time}</span> <span style="color:${color};font-weight:${entry.type === 'error' ? 700 : 400}">${entry.message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
+      panel.appendChild(line);
+      panel.scrollTop = panel.scrollHeight;
+    } catch (err) {}
+  };
+}
+
 function connectEmbedLogs() {
   if (embedLogSource) { embedLogSource.close(); embedLogSource = null; }
   if (!document.getElementById('embedLiveLogs').checked) {
@@ -186,6 +230,7 @@ function connectEmbedLogs() {
   embedLogSource.onmessage = (e) => {
     try {
       const entry = JSON.parse(e.data);
+      if (entry.source === 'client' && entry.sid && entry.sid === sessionStorage.getItem('peestream_sid')) return;
       const time = new Date(entry.time).toLocaleTimeString();
       const colors = { info: '#8b8fa3', success: '#22c55e', warn: '#f59e0b', error: '#ef4444' };
       const color = colors[entry.type] || '#8b8fa3';

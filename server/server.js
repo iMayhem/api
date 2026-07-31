@@ -537,12 +537,13 @@ function logScrape(type, message, extra) {
 
 // Client-side embed logs (embed POSTs its own debug events here)
 app.post('/api/scrape/client-log', (req, res) => {
-  const { type, message, tmdbId } = req.body || {};
+  const { type, message, tmdbId, sid } = req.body || {};
   broadcastScrapeLog({
     time: Date.now(),
     type: type || 'info',
     message: `[client${tmdbId ? `:${tmdbId}` : ''}] ${message || ''}`,
-    source: 'client'
+    source: 'client',
+    sid: sid || null
   });
   res.json({ ok: true });
 });

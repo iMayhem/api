@@ -134,8 +134,10 @@
       <button onclick="loadEmbed()" style="background:var(--accent,#a359ec);color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer">▶️ Load Embed</button>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2,#888)"><input type="checkbox" id="embedLiveLogs" checked onchange="connectEmbedLogs()"> Live logs</label>
       <button onclick="clearEmbedLogs()" style="background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3);padding:8px 14px;border-radius:8px;cursor:pointer">🧹 Clear Logs</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2,#888)"><input type="checkbox" id="myLogsLive" checked onchange="connectMyLogs()"> My logs</label>
+      <button onclick="clearMyLogs()" style="background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3);padding:8px 14px;border-radius:8px;cursor:pointer">🧹 Clear My Logs</button>
     </div>
-    <div style="display:grid;grid-template-columns:minmax(320px,1fr) minmax(360px,1fr);gap:14px;align-items:start">
+    <div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(340px,1fr) minmax(340px,1fr);gap:14px;align-items:start">
       <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;aspect-ratio:16/10">
         <iframe id="embedFrame" src="/embed/" style="width:100%;height:100%;border:none" allowfullscreen></iframe>
       </div>
@@ -145,6 +147,13 @@
           <span id="embedLogStatus" style="font-size:11px;color:var(--text2,#888)">connecting...</span>
         </div>
         <div id="embedLogPanel" style="flex:1;overflow-y:auto;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.7;min-height:300px"></div>
+      </div>
+      <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;max-height:480px">
+        <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center">
+          <span>🧑 My Player Logs</span>
+          <span id="myLogsStatus" style="font-size:11px;color:var(--text2,#888)">waiting for embed session...</span>
+        </div>
+        <div id="myLogsPanel" style="flex:1;overflow-y:auto;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.7;min-height:300px"></div>
       </div>
     </div>
   </div>
