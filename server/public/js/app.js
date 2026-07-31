@@ -1623,10 +1623,10 @@ function clearScraperTest() {
 function runScraperTest() {
   const provider = document.getElementById('testProvider').value;
   const mode = document.getElementById('testMode').value;
-  const tmdbId = document.getElementById('testTmdbId').value.trim();
+  const tmdbId = document.getElementById('scraperTestTmdbId').value.trim();
   const type = document.getElementById('testType').value;
-  const season = document.getElementById('testSeason').value.trim();
-  const episode = document.getElementById('testEpisode').value.trim();
+  const season = document.getElementById('scraperTestSeason').value.trim();
+  const episode = document.getElementById('scraperTestEpisode').value.trim();
 
   if (!tmdbId) { alert('Enter a TMDB ID'); return; }
   if (mode === 'isolated' && !provider) { alert('Select a provider for isolated test'); return; }

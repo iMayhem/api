@@ -136,7 +136,7 @@
     </div>
     <div style="display:grid;grid-template-columns:minmax(320px,1fr) minmax(360px,1fr);gap:14px;align-items:start">
       <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;aspect-ratio:16/10">
-        <iframe id="embedFrame" src="/embed/?tmdbId=550&type=movie" style="width:100%;height:100%;border:none" allowfullscreen></iframe>
+        <iframe id="embedFrame" src="/embed/" style="width:100%;height:100%;border:none" allowfullscreen></iframe>
       </div>
       <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;max-height:480px">
         <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center">
@@ -162,13 +162,13 @@
         <option value="isolated">Isolated (no fallback)</option>
         <option value="embed">Embed mode (all providers)</option>
       </select>
-      <input type="text" id="testTmdbId" placeholder="TMDB ID" style="width:110px" value="550">
+      <input type="text" id="scraperTestTmdbId" placeholder="TMDB ID" style="width:110px" value="550">
       <select id="testType" style="width:100px">
         <option value="movie">🎬 Movie</option>
         <option value="tv">📺 TV</option>
       </select>
-      <input type="text" id="testSeason" placeholder="Season" style="width:80px">
-      <input type="text" id="testEpisode" placeholder="Episode" style="width:80px">
+      <input type="text" id="scraperTestSeason" placeholder="Season" style="width:80px">
+      <input type="text" id="scraperTestEpisode" placeholder="Episode" style="width:80px">
       <button onclick="runScraperTest()" style="background:var(--accent,#a359ec);color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer">▶️ Run Test</button>
       <button onclick="clearScraperTest()" style="background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3);padding:8px 14px;border-radius:8px;cursor:pointer">🧹 Clear</button>
       <span id="testStatus" style="font-size:12px;color:var(--text2,#888)"></span>

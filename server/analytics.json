@@ -1,7 +1,7 @@
 {
   "totals": {
-    "pageViews": 54,
-    "plays": 7,
+    "pageViews": 57,
+    "plays": 8,
     "errors": 0,
     "qualityChanges": 0,
     "audioChanges": 0,
@@ -39,9 +39,10 @@
       "40.77.177.104",
       "40.77.177.199",
       "65.55.210.255",
-      "2409:40d0:293:a270:ba19:9f2d:297e:fdc1"
+      "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "195.3.220.225"
     ],
-    "watchTimeMs": 4825000
+    "watchTimeMs": 4850000
   },
   "events": [
     {
@@ -4524,6 +4525,92 @@
       "data": {
         "url": "https://providers.peestream.in/"
       }
+    },
+    {
+      "id": "f402dc1d-5a8e-40b4-874f-ae790a088a19",
+      "type": "pageview",
+      "sessionId": "sid_hslergfhms8om55u",
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "time": 1785486592064,
+      "data": {
+        "domain": "providers.peestream.in",
+        "referrer": "https://providers.peestream.in/",
+        "currentUrl": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+        "tmdbId": "550",
+        "mediaType": "movie",
+        "title": ""
+      }
+    },
+    {
+      "id": "1f031807-75ac-4bae-84e4-a13a1debebe5",
+      "type": "play",
+      "sessionId": "sid_hslergfhms8om55u",
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "time": 1785486594729,
+      "data": {
+        "domain": "providers.peestream.in",
+        "referrer": "https://providers.peestream.in/",
+        "currentUrl": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+        "tmdbId": "550",
+        "mediaType": "movie",
+        "title": ""
+      }
+    },
+    {
+      "id": "0b631af3-94f9-4316-b58e-0d81056c500b",
+      "type": "heartbeat",
+      "sessionId": "sid_hslergfhms8om55u",
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "time": 1785486614709,
+      "data": {
+        "domain": "providers.peestream.in",
+        "referrer": "https://providers.peestream.in/",
+        "currentUrl": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+        "tmdbId": "550",
+        "mediaType": "movie",
+        "title": "",
+        "duration": 25000
+      }
+    },
+    {
+      "id": "82528fef-7a25-4522-9923-d393ff866d30",
+      "type": "pageview",
+      "sessionId": "sid_ioerit33ms8ooztz",
+      "ip": "195.3.220.225",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://peestream.in/embed/?tmdbId=46952&type=show&season=2&episode=7",
+      "time": 1785486721924,
+      "data": {
+        "domain": "moovie.fun",
+        "referrer": "https://moovie.fun/stream/tv-show/46952/season/2/episode/7",
+        "currentUrl": "https://peestream.in/embed/?tmdbId=46952&type=show&season=2&episode=7",
+        "tmdbId": "46952",
+        "mediaType": "show",
+        "title": ""
+      }
+    },
+    {
+      "id": "9ca7bbbc-19c9-488e-8a4a-d9983c396400",
+      "type": "pageview",
+      "sessionId": "sid_ioerit33ms8ooztz",
+      "ip": "195.3.220.225",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://peestream.in/embed/?tmdbId=46952&type=show&season=2&episode=7",
+      "time": 1785486736552,
+      "data": {
+        "domain": "peestream.in",
+        "referrer": "https://peestream.in/embed/?tmdbId=46952&type=show&season=2&episode=7",
+        "currentUrl": "https://peestream.in/embed/?tmdbId=46952&type=show&season=2&episode=7",
+        "tmdbId": "46952",
+        "mediaType": "show",
+        "title": ""
+      }
     }
   ],
   "sessions": {
@@ -4906,24 +4993,27 @@
       "pageViews": 1,
       "plays": 0,
       "errors": 0
-    }
-  },
-  "realtimeSessions": {
-    "sid_jp1vt8e6ms8okfiv": {
-      "lastPing": 1785486564174,
+    },
+    "sid_hslergfhms8om55u": {
+      "firstSeen": 1785486592064,
+      "lastSeen": 1785486614709,
       "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
       "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
       "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
-      "currentUrl": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
-      "currentStream": ""
+      "pageViews": 1,
+      "plays": 1,
+      "errors": 0
     },
-    "ms8om5h7phgynjbm": {
-      "lastPing": 1785486590332,
-      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
-      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-      "referrer": "https://providers.peestream.in/",
-      "currentUrl": "",
-      "currentStream": ""
+    "sid_ioerit33ms8ooztz": {
+      "firstSeen": 1785486721924,
+      "lastSeen": 1785486736552,
+      "ip": "195.3.220.225",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://peestream.in/embed/?tmdbId=46952&type=show&season=2&episode=7",
+      "pageViews": 2,
+      "plays": 0,
+      "errors": 0
     }
-  }
+  },
+  "realtimeSessions": {}
 }
