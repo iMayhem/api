@@ -142,6 +142,7 @@ function switchView(name) {
   if (name === 'embed') initEmbedView();
   else if (embedLogSource) { embedLogSource.close(); embedLogSource = null; }
   if (name === 'scraper-test') initScraperTest();
+  else destroyTestPlayer();
 }
 
 // ── Embed Debug View ───────────────────────────────────────────────────
@@ -1592,6 +1593,7 @@ async function initScraperTest() {
   } catch (e) {
     sel.innerHTML = '<option value="">Failed to load providers</option>';
   }
+  initScraperEditor();
 }
 
 function testAppend(event, data) {
@@ -1635,6 +1637,9 @@ function runScraperTest() {
   if (scraperTestSource) scraperTestSource.close();
   document.getElementById('testEventLog').innerHTML = '';
   testAppendRaw('');
+  const streamList = document.getElementById('scraperTestStreamList');
+  if (streamList) streamList.innerHTML = '';
+  destroyTestPlayer();
   const status = document.getElementById('testStatus');
 
   let url;
@@ -1666,8 +1671,14 @@ function runScraperTest() {
   es.addEventListener('completed', (e) => {
     const data = JSON.parse(e.data);
     testAppend('completed', data);
-    if (data.stream) streams.push({ sourceId: data.sourceId, stream: data.stream });
-    if (Array.isArray(data.stream)) streams.push(...data.stream.map((s, i) => ({ sourceId: `${data.sourceId}-${i}`, stream: s })));
+    if (data.stream) {
+      streams.push({ sourceId: data.sourceId, stream: data.stream });
+      addTestStream(data.stream, data.sourceId);
+    }
+    if (Array.isArray(data.stream)) {
+      streams.push(...data.stream.map((s, i) => ({ sourceId: `${data.sourceId}-${i}`, stream: s })));
+      data.stream.forEach((s, i) => addTestStream(s, `${data.sourceId}-${i}`));
+    }
     testAppendRaw(JSON.stringify(streams, null, 2));
     status.innerText = `${streams.length} stream(s) resolved`;
   });
@@ -1691,4 +1702,149 @@ function runScraperTest() {
     status.innerText = '❌ Connection lost';
     status.style.color = '#ef4444';
   };
+}
+
+// ── Scraper Test: Player ─────────────────────────────────────────────────
+
+let hlsTestInstance = null;
+
+function destroyTestPlayer() {
+  if (hlsTestInstance) { hlsTestInstance.destroy(); hlsTestInstance = null; }
+  const video = document.getElementById('scraperTestVideo');
+  if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
+}
+
+function addTestStream(stream, sourceId) {
+  const list = document.getElementById('scraperTestStreamList');
+  if (!list) return;
+  let label = 'hls';
+  if (stream.type === 'file' && stream.qualities && Object.keys(stream.qualities).length) {
+    label = Object.keys(stream.qualities).join(' / ');
+  } else if (stream.url) {
+    label = 'mp4';
+  }
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:6px 10px';
+  const info = document.createElement('span');
+  info.style.cssText = 'color:var(--text2,#888);overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+  info.title = stream.playlist || stream.url || '';
+  info.innerText = `[${sourceId}] ${label}`;
+  const btn = document.createElement('button');
+  btn.innerText = '▶️ Play';
+  btn.style.cssText = 'background:var(--accent,#a359ec);color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px';
+  btn.onclick = () => playTestStream(stream, sourceId);
+  row.appendChild(info);
+  row.appendChild(btn);
+  list.appendChild(row);
+}
+
+function playTestStream(stream, sourceId) {
+  const video = document.getElementById('scraperTestVideo');
+  if (!video) return;
+  destroyTestPlayer();
+  let playerUrl = '';
+  let isHlsStream = false;
+  if (stream.type === 'hls') {
+    playerUrl = stream.playlist;
+    isHlsStream = true;
+  } else if (stream.type === 'file') {
+    const qKeys = Object.keys(stream.qualities || {});
+    const priority = ['4k', '2160', '1080', '1080p', '1080P', '720', '720p', '720P', '480', '480p', '360', '360p', 'sd'];
+    let best = qKeys[0];
+    for (const q of priority) if (qKeys.includes(q)) { best = q; break; }
+    playerUrl = stream.qualities?.[best]?.url || '';
+  } else {
+    playerUrl = stream.url || '';
+  }
+  if (!playerUrl) { alert('No playable URL'); return; }
+  if (isHlsStream && window.Hls && Hls.isSupported()) {
+    const config = {};
+    if (stream.headers && Object.keys(stream.headers).length) {
+      config.xhrSetup = function (xhr) {
+        for (const [k, v] of Object.entries(stream.headers)) {
+          try { xhr.setRequestHeader(k, v); } catch (e) {}
+        }
+      };
+    }
+    hlsTestInstance = new Hls(config);
+    hlsTestInstance.loadSource(playerUrl);
+    hlsTestInstance.attachMedia(video);
+    hlsTestInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+    hlsTestInstance.on(Hls.Events.ERROR, (evt, data) => {
+      if (data.fatal) {
+        testAppend('error', `HLS fatal: ${data.type} ${data.details}`);
+        hlsTestInstance.destroy();
+        hlsTestInstance = null;
+      }
+    });
+  } else if (isHlsStream && video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = playerUrl;
+    video.play().catch(() => {});
+  } else {
+    video.src = playerUrl;
+    video.play().catch(() => {});
+  }
+  testAppend('info', `▶️ Playing [${sourceId}] ${playerUrl.slice(0, 120)}`);
+}
+
+// ── Scraper Code Editor (edits VPS files directly) ──────────────────────
+
+let scraperFilesLoaded = false;
+
+async function initScraperEditor() {
+  if (scraperFilesLoaded) return;
+  scraperFilesLoaded = true;
+  const sel = document.getElementById('scraperFileSelect');
+  if (!sel) return;
+  try {
+    const data = await api('/api/scraper-files');
+    sel.innerHTML = '';
+    for (const f of data.files) {
+      const opt = document.createElement('option');
+      opt.value = f.name;
+      opt.textContent = `${f.name} (${(f.size / 1024).toFixed(1)} KB)`;
+      sel.appendChild(opt);
+    }
+    sel.selectedIndex = 0;
+  } catch (e) {
+    sel.innerHTML = '<option value="">Failed to load file list</option>';
+  }
+}
+
+async function loadScraperFile() {
+  const sel = document.getElementById('scraperFileSelect');
+  const editor = document.getElementById('scraperFileEditor');
+  const status = document.getElementById('scraperFileStatus');
+  if (!sel || !sel.value) return;
+  status.innerText = 'loading...';
+  status.style.color = '#f59e0b';
+  try {
+    const data = await api('/api/scraper-file?name=' + encodeURIComponent(sel.value));
+    editor.value = data.content;
+    status.innerText = `${data.name} (${(data.size / 1024).toFixed(1)} KB) loaded`;
+    status.style.color = '#22c55e';
+  } catch (e) {
+    status.innerText = 'Failed: ' + e.message;
+    status.style.color = '#ef4444';
+  }
+}
+
+async function saveScraperFile() {
+  const sel = document.getElementById('scraperFileSelect');
+  const editor = document.getElementById('scraperFileEditor');
+  const status = document.getElementById('scraperFileStatus');
+  if (!sel || !sel.value) return;
+  status.innerText = 'saving...';
+  status.style.color = '#f59e0b';
+  try {
+    const data = await api('/api/scraper-file', {
+      method: 'POST',
+      body: JSON.stringify({ name: sel.value, content: editor.value })
+    });
+    status.innerText = data.reloaded ? `✅ Saved & hot-reloaded ${sel.value}` : `✅ Saved ${sel.value}`;
+    status.style.color = '#22c55e';
+  } catch (e) {
+    status.innerText = 'Failed: ' + e.message;
+    status.style.color = '#ef4444';
+  }
 }

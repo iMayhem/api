@@ -275,6 +275,79 @@ app.post("/api/auth/logout", (req, res) => {
   res.json({ success: true });
 });
 
+// ============ Scraper file viewer/editor (auth-protected) ============
+
+const SCRAPER_FILE_RE = /^[a-zA-Z0-9._-]+\.js$/;
+
+function resolveScraperFile(name) {
+  if (!SCRAPER_FILE_RE.test(name)) return null;
+  const filePath = path.resolve(PROVIDERS_DIR, name);
+  if (!filePath.startsWith(PROVIDERS_DIR + path.sep)) return null;
+  return filePath;
+}
+
+app.get("/api/scraper-files", (req, res) => {
+  if (!isReqAuthenticated(req)) return res.status(401).json({ success: false, error: "Authentication required" });
+  try {
+    const files = fs.readdirSync(PROVIDERS_DIR)
+      .filter(f => f.endsWith('.js'))
+      .map(f => {
+        const stat = fs.statSync(path.join(PROVIDERS_DIR, f));
+        return { name: f, size: stat.size, mtime: stat.mtimeMs };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ success: true, files });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get("/api/scraper-file", (req, res) => {
+  if (!isReqAuthenticated(req)) return res.status(401).json({ success: false, error: "Authentication required" });
+  const filePath = resolveScraperFile(String(req.query.name || '').trim());
+  if (!filePath) return res.status(400).json({ success: false, error: "Invalid file name" });
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const stat = fs.statSync(filePath);
+    res.json({ success: true, name: path.basename(filePath), size: stat.size, mtime: stat.mtimeMs, content });
+  } catch (e) {
+    res.status(404).json({ success: false, error: e.message });
+  }
+});
+
+app.post("/api/scraper-file", (req, res) => {
+  if (!isReqAuthenticated(req)) return res.status(401).json({ success: false, error: "Authentication required" });
+  const name = String(req.body.name || '').trim();
+  const content = typeof req.body.content === 'string' ? req.body.content : '';
+  const filePath = resolveScraperFile(name);
+  if (!filePath) return res.status(400).json({ success: false, error: "Invalid file name" });
+  try {
+    const prev = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : null;
+    fs.writeFileSync(filePath, content, 'utf8');
+    const id = path.basename(name, '.js');
+    try {
+      delete require.cache[require.resolve(filePath)];
+      const mod = require(filePath);
+      if (mod && typeof mod.getStreams === 'function') {
+        providers[id] = mod;
+        providerMeta[id] = {
+          name: mod.name || id,
+          supportedTypes: mod.supportedTypes || ['movie', 'tv'],
+        };
+        logScrape('success', `[editor] Saved & reloaded ${name}`);
+        return res.json({ success: true, reloaded: true });
+      }
+      throw new Error('Module does not export getStreams()');
+    } catch (e) {
+      if (prev !== null) fs.writeFileSync(filePath, prev, 'utf8');
+      logScrape('error', `[editor] Reload failed for ${name}, reverted: ${e.message}`);
+      return res.status(400).json({ success: false, error: 'Saved to disk but reload failed — file reverted. ' + e.message });
+    }
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // ============ movie-web SSE Provider API (before static to ensure priority) ============
 
 function parseQuality(q) {

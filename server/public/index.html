@@ -11,6 +11,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 </head>
 <body>
 <nav class="sidebar">
@@ -173,15 +174,36 @@
       <button onclick="clearScraperTest()" style="background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3);padding:8px 14px;border-radius:8px;cursor:pointer">🧹 Clear</button>
       <span id="testStatus" style="font-size:12px;color:var(--text2,#888)"></span>
     </div>
-    <div style="display:grid;grid-template-columns:minmax(380px,1fr) minmax(380px,1fr);gap:14px;align-items:start">
-      <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;max-height:560px">
-        <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600;font-size:13px">⚡ Live SSE Events</div>
-        <div id="testEventLog" style="flex:1;overflow-y:auto;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.7;min-height:340px"></div>
+    <div style="display:grid;grid-template-columns:minmax(380px,1fr) minmax(380px,1fr);gap:14px;align-items:start;margin-bottom:14px">
+      <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden">
+        <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600;font-size:13px">🎥 Player</div>
+        <div style="padding:10px">
+          <video id="scraperTestVideo" controls style="width:100%;aspect-ratio:16/9;background:#000;border-radius:8px;display:block"></video>
+          <div id="scraperTestStreamList" style="margin-top:10px;display:flex;flex-direction:column;gap:6px;font-size:12px"></div>
+        </div>
       </div>
-      <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;max-height:560px">
-        <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600;font-size:13px">📦 Raw Output (streams JSON)</div>
-        <pre id="testRawOutput" style="flex:1;overflow:auto;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.6;margin:0;min-height:340px;white-space:pre-wrap;word-break:break-all">Run a test to see raw output...</pre>
+      <div style="display:grid;grid-template-rows:auto auto;gap:14px">
+        <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;max-height:260px">
+          <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600;font-size:13px">⚡ Live SSE Events</div>
+          <div id="testEventLog" style="flex:1;overflow-y:auto;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.7;min-height:180px"></div>
+        </div>
+        <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;max-height:260px">
+          <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600;font-size:13px">📦 Raw Output (streams JSON)</div>
+          <pre id="testRawOutput" style="flex:1;overflow:auto;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.6;margin:0;min-height:180px;white-space:pre-wrap;word-break:break-all">Run a test to see raw output...</pre>
+        </div>
       </div>
+    </div>
+    <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden">
+      <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <span>📝 Scraper Code Editor <span style="font-weight:400;color:var(--text2,#888)">(saves directly to /root/api/deobfuscated on VPS, hot-reloads)</span></span>
+        <span style="display:flex;gap:8px;align-items:center">
+          <select id="scraperFileSelect" style="width:220px;padding:6px 8px;border-radius:8px;background:#15152a;color:#e5e7eb;border:1px solid rgba(255,255,255,.12)"></select>
+          <button onclick="loadScraperFile()" style="background:rgba(255,255,255,.08);color:#e5e7eb;border:1px solid rgba(255,255,255,.15);padding:6px 14px;border-radius:8px;cursor:pointer">📂 Load</button>
+          <button onclick="saveScraperFile()" style="background:var(--accent,#a359ec);color:#fff;border:none;padding:6px 14px;border-radius:8px;cursor:pointer">💾 Save & Reload</button>
+          <span id="scraperFileStatus" style="font-size:11px;color:var(--text2,#888)"></span>
+        </span>
+      </div>
+      <textarea id="scraperFileEditor" spellcheck="false" style="width:100%;height:420px;background:#0b0b14;color:#d4d4d8;border:none;border-top:1px solid rgba(255,255,255,.06);padding:14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;resize:vertical;outline:none" placeholder="Select a scraper file and click Load..."></textarea>
     </div>
   </div>
 
