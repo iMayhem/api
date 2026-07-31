@@ -440,10 +440,6 @@ function processVideoResponse(_0x51d20f, _0x73c86a, _0x29525d, _0x2a9997, _0xc09
 function getStreams(_0x4e2678, _0x308ce5, _0x4360e6, _0x3a120a) {
   return __async(this, null, function* () {
     console.log("[Castle] Starting extraction for TMDB ID: " + _0x4e2678 + ", Type: " + _0x308ce5 + (_0x308ce5 === "tv" ? ", S:" + _0x4360e6 + "E:" + _0x3a120a : ""));
-    if (_0x308ce5 === "tv") {
-      _0x4360e6 = _0x4360e6 != null ? Number(_0x4360e6) : _0x4360e6;
-      _0x3a120a = _0x3a120a != null ? Number(_0x3a120a) : _0x3a120a;
-    }
     try {
       const _0x49acb1 = yield getTMDBDetails(_0x4e2678, _0x308ce5);
       console.log("[Castle] TMDB Info: \"" + _0x49acb1.title + "\" (" + (_0x49acb1.year || "N/A") + ")");
@@ -511,6 +507,5 @@ function getStreams(_0x4e2678, _0x308ce5, _0x4360e6, _0x3a120a) {
   });
 }
 module.exports = {
-  name: "Apollo",
   getStreams: getStreams
 };

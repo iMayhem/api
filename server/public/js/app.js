@@ -801,7 +801,11 @@ function loadPlayer(url, title, type) {
       player.play();
     });
     hlsInstance.on(Hls.Events.ERROR, (e, data) => {
-      if (data.fatal) { anTrack('error', { message: data.type + ': ' + data.details, url }); markStreamLoaded(); }
+      if (data.fatal) {
+        const reason = (data.reason || data.error || data.err || '').toString().slice(0, 200);
+        anTrack('error', { message: `${data.type}: ${data.details}${reason ? ` - ${reason}` : ''}`, url });
+        markStreamLoaded();
+      }
     });
     hlsInstance.on(Hls.Events.LEVEL_LOADED, () => markStreamLoaded());
   } else {
@@ -1647,6 +1651,8 @@ function runScraperTest() {
   const type = document.getElementById('testType').value;
   const season = document.getElementById('scraperTestSeason').value.trim();
   const episode = document.getElementById('scraperTestEpisode').value.trim();
+  const proxy = document.getElementById('scraperTestProxy') ? document.getElementById('scraperTestProxy').value : '1';
+  const proxyLabel = proxy === '0' ? 'direct' : proxy === 'vps' ? 'vps proxy' : 'cloudflare proxy';
 
   if (!tmdbId) { alert('Enter a TMDB ID'); return; }
   if (mode === 'isolated' && !provider) { alert('Select a provider for isolated test'); return; }
@@ -1660,12 +1666,13 @@ function runScraperTest() {
   const status = document.getElementById('testStatus');
 
   let url;
+  const proxySuffix = `&proxy=${proxy}`;
   if (mode === 'isolated') {
-    url = `/scrape/source?id=${encodeURIComponent(provider)}&tmdbId=${encodeURIComponent(tmdbId)}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}&fallback=false&proxy=1`;
-    status.innerText = `Testing ${provider} (isolated)...`;
+    url = `/scrape/source?id=${encodeURIComponent(provider)}&tmdbId=${encodeURIComponent(tmdbId)}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}&fallback=false${proxySuffix}`;
+    status.innerText = `Testing ${provider} (isolated, ${proxyLabel})...`;
   } else {
-    url = `/scrape?tmdbId=${encodeURIComponent(tmdbId)}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}&proxy=1`;
-    status.innerText = 'Running embed-mode scrape...';
+    url = `/scrape?tmdbId=${encodeURIComponent(tmdbId)}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}${proxySuffix}`;
+    status.innerText = `Running embed-mode scrape (${proxyLabel})...`;
   }
 
   const es = new EventSource(url);
@@ -1688,13 +1695,16 @@ function runScraperTest() {
   es.addEventListener('completed', (e) => {
     const data = JSON.parse(e.data);
     testAppend('completed', data);
-    if (data.stream) {
-      streams.push({ sourceId: data.sourceId, stream: data.stream });
-      addTestStream(data.stream, data.sourceId);
-    }
+    const sid = data.id || data.sourceId || 'unknown';
     if (Array.isArray(data.stream)) {
-      streams.push(...data.stream.map((s, i) => ({ sourceId: `${data.sourceId}-${i}`, stream: s })));
-      data.stream.forEach((s, i) => addTestStream(s, `${data.sourceId}-${i}`));
+      data.stream.forEach((s, i) => {
+        const sId = s.id || `${sid}-${i}`;
+        streams.push({ sourceId: sId, stream: s });
+        addTestStream(s, sId);
+      });
+    } else if (data.stream) {
+      streams.push({ sourceId: sid, stream: data.stream });
+      addTestStream(data.stream, sid);
     }
     testAppendRaw(JSON.stringify(streams, null, 2));
     status.innerText = `${streams.length} stream(s) resolved`;
@@ -1740,7 +1750,7 @@ function addTestStream(stream, sourceId) {
   } else if (stream.url) {
     label = 'mp4';
   }
-  if (stream.proxied) label += ' 🔒 proxied';
+  if (stream.proxied) label += stream.proxyKind === 'vps' ? ' 🔒 vps-proxied' : ' 🔒 cf-proxied';
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:6px 10px';
   const info = document.createElement('span');
@@ -1793,8 +1803,11 @@ function playTestStream(stream, sourceId) {
     hlsTestInstance.attachMedia(video);
     hlsTestInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
     hlsTestInstance.on(Hls.Events.ERROR, (evt, data) => {
+      const reason = (data.reason || data.error || data.err || '').toString().slice(0, 300);
+      const url = (data.url || data.response?.url || '').slice(0, 200);
+      testAppend('info', `HLS error: ${data.type} ${data.details} | fatal: ${data.fatal}${reason ? ` | reason: ${reason}` : ''}${url ? ` | url: ${url}` : ''}`);
       if (data.fatal) {
-        testAppend('error', `HLS fatal: ${data.type} ${data.details}`);
+        testAppend('error', `HLS fatal: ${data.type} ${data.details}${reason ? ` - ${reason}` : ''}`);
         hlsTestInstance.destroy();
         hlsTestInstance = null;
       }

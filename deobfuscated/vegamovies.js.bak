@@ -1107,8 +1107,7 @@ function getStreams(_0x5d6da7, _0x54062b, _0x4934f6, _0x5a0f1a) {
 }
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    getStreams: getStreams,
-    name: "Kratos"
+    getStreams: getStreams
   };
 } else {
   global.getStreams = getStreams;

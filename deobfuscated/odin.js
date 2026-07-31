@@ -1,187 +1,664 @@
-const TMDB_KEY = '439c478a771f35c05022f9feabcca01c';
-const API_BASE = 'https://api.speedracelight.com';
-const DECRYPT_API = 'https://enc-dec.app/api/dec-videasy';
-const CF_WORKER = 'https://cf-header-proxy.sujeetunbeatable.workers.dev';
-const TIMEOUT_MS = 20000;
+var __async = (thisArg, args, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (result) =>
+      result.done
+        ? resolve(result.value)
+        : Promise.resolve(result.value).then(fulfilled, rejected);
+    step((generator = generator.apply(thisArg, args)).next());
+  });
+};
 
-const SERVERS = ['myflixerzupcloud', 'downloader2', 'm4uhd', 'hdmovie', 'cdn', 'superflix', 'lamovie', 'jett', 'tejo', 'neon2', 'ym'];
+const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+const TMDB_BASE_URL = "https://api.themoviedb.org/3";
+const WINGS_API_BASE = "https://api.speedracelight.com";
+const USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
-const f = [1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993, 2453635748, 2870763221, 3624381080, 310598401, 607225278, 1426881987, 1925078388, 2162078206, 2614888103, 3248222580];
-const MAGIC = [109, 118, 109, 49];
+const REQUEST_HEADERS = {
+  "User-Agent": USER_AGENT,
+  Accept: "*/*",
+  Origin: "https://www.vidking.net",
+  Referer: "https://www.vidking.net/",
+  "Cache-Control": "no-cache, no-store, must-revalidate",
+  Pragma: "no-cache",
+  Expires: "0",
+};
 
-const v = e => { let t = e >>> 0; t ^= t >>> 16; t = Math.imul(t, 2246822507) >>> 0; t ^= t >>> 13; t = Math.imul(t, 3266489909) >>> 0; return (t ^= t >>> 16) >>> 0; };
-const w = (e, t) => { let r = e >>> 0; const s = t & 31; return s === 0 ? r : ((r << s) | (r >>> (32 - s))) >>> 0; };
+const SERVERS = {
+  Hydrogen: { path: "cdn/sources-with-title" },
+  Titanium: { path: "tejo/sources-with-title" },
+  Oxygen: { path: "neon2/sources-with-title" },
+  Lithium: { path: "downloader2/sources-with-title" },
+  Krypton: { path: "ym/sources-with-title" },
+  Carbon: { path: "mb-flix/sources-with-title" },
+  Aluminium: { path: "lamovie/sources-with-title" },
+  Nitrogen: { path: "m4uhd/sources-with-title" },
+  Neon: { path: "superflix/sources-with-title" },
+  Helium: { path: "1movies/sources-with-title" },
+};
 
-function fnv1a(str) {
-  let t = 2166136261;
-  for (let i = 0; i < str.length; i++) t = Math.imul(t ^ str.charCodeAt(i), 16777619) >>> 0;
-  return v(t);
+// --- Custom crypto / stream cipher primitives ---
+
+const jl = [
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+  0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+  0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+];
+const Tf = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476];
+const Js = 0x3d; // 61
+const _f = 0x8;
+const ms = 0x9e3779b9;
+const Ys = [0x6d, 0x76, 0x6d, 0x31]; // "mvm1"
+
+const Sf = (n) => (n * (n + 1) & 1) === 0;
+const bf = (n) => (n * (n + 1) & 1) === 1;
+
+function ui(x) {
+  x >>>= 0;
+  x ^= x >>> 16;
+  x = Math.imul(x, 0x85ebca6b) >>> 0;
+  x ^= x >>> 13;
+  x = Math.imul(x, 0xc2b2ae35) >>> 0;
+  x ^= x >>> 16;
+  return x >>> 0;
 }
 
-function makeState(seed, mediaId) {
-  const S = Array(61);
-  let a = v(fnv1a(seed) ^ v((parseInt(mediaId) >>> 0) ^ 2654435769)) >>> 0;
-  for (let i = 0; i < 8; i++) {
-    const t = a % 61;
-    a = w((a + 2654435769) >>> 0, 7 + (7 & i));
-    S[t] = (a ^ v(a)) >>> 0;
-    a = v((a + t) >>> 0);
+function ps(x, n) {
+  x >>>= 0;
+  n &= 0x1f;
+  if (n === 0) return x >>> 0;
+  return ((x << n) | (x >>> (32 - n))) >>> 0;
+}
+
+function If(str) {
+  let h = Tf[0] >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h = ps((h ^ Math.imul(str.charCodeAt(i), jl[i & 0xf])) >>> 0, 5);
   }
-  return { S, acc: v(2779096485 ^ a) >>> 0 };
+  return ui(h);
 }
 
-function generateKeyStream(state, len) {
-  const out = new Uint8Array(len);
-  let ctr = 0;
-  for (let i = 0; i < len;) {
-    const arr = state.S;
-    const acc = state.acc;
-    const n = acc % 61;
-    const idx = 0 - Number(n in arr);
-    const l = (arr[n] !== undefined ? arr[n] : 0) >>> 0;
-    const a2 = (l ^ Math.imul(2654435769, ctr + 1) >>> 0) >>> 0;
-    let d = (((acc ^ a2) >>> 0) | ((acc & a2 & idx) >>> 0)) >>> 0;
-    d = (w((d + acc) >>> 0, 31 & n) ^ w(acc, 31 & Math.imul(n, 7))) >>> 0;
-    state.acc = v((d + 2654435769) >>> 0);
-    arr[n] = state.acc >>> 0;
-    const val = state.acc;
-    out[i++] = val & 255;
-    if (i < len) out[i++] = (val >>> 8) & 255;
-    if (i < len) out[i++] = (val >>> 16) & 255;
-    if (i < len) out[i++] = (val >>> 24) & 255;
-    ctr++;
+function Af(key) {
+  const S = new Array(256);
+  for (let i = 0; i < 256; i++) S[i] = i;
+  let j = 0;
+  for (let i = 0; i < 256; i++) {
+    j = (j + S[i] + key.charCodeAt(i % key.length)) & 0xff;
+    const tmp = S[i];
+    S[i] = S[j];
+    S[j] = tmp;
+  }
+  return S;
+}
+
+function wf(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 0x1000193) >>> 0;
+  }
+  return ui(h);
+}
+
+function vf(a, b, c) {
+  return (((a ^ b) >>> 0) | ((a & b & c) >>> 0)) >>> 0;
+}
+
+function Nf(seed, tmdbId) {
+  if (bf(seed.length)) {
+    return { S: Af(seed), acc: If(seed) };
+  }
+  const S = new Array(Js);
+  let acc = ui(wf(seed) ^ ui((tmdbId >>> 0) ^ ms)) >>> 0;
+  for (let i = 0; i < _f; i++) {
+    if (Sf(i)) {
+      const idx = acc % Js;
+      acc = ps((acc + ms) >>> 0, 7 + (i & 7));
+      S[idx] = (acc ^ ui(acc)) >>> 0;
+      acc = ui((acc + idx) >>> 0);
+    } else {
+      S[i] = jl[i & 0xf];
+    }
+  }
+  return { S, acc: ui(acc ^ 0xa5a5a5a5) >>> 0 };
+}
+
+function Rf(state, counter) {
+  const S = state.S;
+  let acc = state.acc;
+  const idx = acc % Js;
+  const flag = 0 - +(idx in S);
+  const sVal = S[idx] >>> 0;
+  const mul = Math.imul(ms, counter + 1) >>> 0;
+  let x = vf(acc, (sVal ^ mul) >>> 0, flag);
+  x = (ps((x + acc) >>> 0, idx & 0x1f) ^ ps(acc, Math.imul(idx, 7) & 0x1f)) >>> 0;
+  acc = ui((x + ms) >>> 0);
+  S[idx] = acc >>> 0;
+  state.acc = acc;
+  return acc >>> 0;
+}
+
+function Cf(seed, tmdbId, length) {
+  const state = Nf(seed, tmdbId);
+  const out = new Uint8Array(length);
+  let counter = 0;
+  for (let i = 0; i < length; ) {
+    const val = Rf(state, counter++);
+    out[i++] = val & 0xff;
+    if (i < length) out[i++] = (val >>> 8) & 0xff;
+    if (i < length) out[i++] = (val >>> 16) & 0xff;
+    if (i < length) out[i++] = (val >>> 24) & 0xff;
   }
   return out;
 }
 
-function b64decode(str) {
-  const s = str.replace(/-/g, '+').replace(/_/g, '/').padEnd(4 * Math.ceil(str.length / 4), '=');
-  return new Uint8Array(Buffer.from(s, 'base64'));
-}
-
-function decryptLocal(encryptedB64, seed, mediaId) {
-  const payload = b64decode(encryptedB64);
-  const keyStream = generateKeyStream(makeState(seed, mediaId), payload.length);
-  for (let i = 0; i < payload.length; i++) payload[i] ^= keyStream[i];
-  for (let i = 0; i < 4; i++) if (payload[i] !== MAGIC[i]) throw new Error('decrypt failed');
-  return Buffer.from(payload.slice(4)).toString('utf-8');
-}
-
-// Cloudflare Worker proxy: fetches URL with Referer/Origin headers from CF IP
-async function cfFetch(url) {
-  const workerUrl = `${CF_WORKER}/?url=${encodeURIComponent(url)}&referer=${encodeURIComponent('https://player.videasy.to/')}&origin=${encodeURIComponent('https://player.videasy.to')}`;
-  const res = await fetch(workerUrl, { signal: AbortSignal.timeout(TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`cf ${res.status}`);
-  return await res.text();
-}
-
-// Seed cache
-const seedCache = new Map();
-
-async function getSeed(mediaId) {
-  const key = String(mediaId);
-  const cached = seedCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.seed;
-
-  const seedUrl = `${API_BASE}/seed?mediaId=${key}`;
-  const body = await cfFetch(seedUrl);
-  const d = JSON.parse(body);
-  const ttl = d.ttlMs || 60000;
-  seedCache.set(key, { seed: d.seed, expiresAt: Date.now() + ttl });
-  return d.seed;
-}
-
-async function decryptRemote(encryptedB64, mediaId, seed) {
-  const res = await fetch(DECRYPT_API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: encryptedB64, id: String(mediaId), seed }),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!res.ok) throw new Error(`remote-dec ${res.status}`);
-  const d = await res.json();
-  return typeof d.result === 'object' ? d.result : JSON.parse(d.result);
-}
-
-async function tryDecrypt(encrypted, seed, mediaId) {
-  try {
-    const r = await decryptRemote(encrypted, mediaId, seed);
-    if (r && r.sources && r.sources.length) return r;
-  } catch {}
-  try {
-    const jsonStr = decryptLocal(encrypted, seed, String(mediaId));
-    const r = JSON.parse(jsonStr);
-    if (r && r.sources && r.sources.length) return r;
-  } catch {}
-  return null;
-}
-
-async function fetchDecrypted(params, mediaId) {
-  const seed = await getSeed(mediaId);
-  const p = new URLSearchParams(params);
-  p.set('seed', seed);
-
-  for (const server of SERVERS) {
-    try {
-      const url = `${API_BASE}/${server}/sources-with-title?${p.toString()}`;
-      const encrypted = await cfFetch(url);
-      const r = await tryDecrypt(encrypted, seed, mediaId);
-      if (r) return r;
-    } catch {}
+function decodeBase64(str) {
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const cleaned = str
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .replace(/=+$/, "");
+  const len = cleaned.length;
+  const out = new Uint8Array(Math.floor(len * 0.75));
+  let pos = 0;
+  for (let i = 0; i < len; i += 4) {
+    const a = alphabet.indexOf(cleaned[i]);
+    const b = alphabet.indexOf(cleaned[i + 1] || "A");
+    const c = alphabet.indexOf(cleaned[i + 2] || "A");
+    const d = alphabet.indexOf(cleaned[i + 3] || "A");
+    out[pos++] = (a << 2) | (b >> 4);
+    if (i + 2 < len) out[pos++] = ((b & 0xf) << 4) | (c >> 2);
+    if (i + 3 < len) out[pos++] = ((c & 0x3) << 6) | d;
   }
-  throw new Error('no sources');
+  return out;
 }
 
-async function tmdbFetch(tmdbId, mediaType) {
-  const type = mediaType === 'tv' ? 'tv' : 'movie';
-  const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_KEY}&language=en-US`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-  if (!res.ok) throw new Error(`TMDB ${res.status}`);
-  const d = await res.json();
-  if (d.success === false) throw new Error('TMDB not found');
-  return {
-    title: d.title || d.name,
-    year: (d.release_date || d.first_air_date || '').split('-')[0],
-    imdbId: d.imdb_id || '',
+function xf(str) {
+  return decodeBase64(str);
+}
+
+function decryptWingsDatabase(payload, seed, tmdbId) {
+  const data = xf(payload);
+  const keystream = Cf(seed, tmdbId, data.length);
+
+  for (let i = 0; i < data.length; i++) {
+    data[i] ^= keystream[i];
+  }
+
+  // Magic header check "mvm1"
+  for (let i = 0; i < Ys.length; i++) {
+    if (data[i] !== Ys[i]) {
+      throw new Error("decrypt failed: bad seed or tampered payload");
+    }
+  }
+
+  // UTF-8 decode the rest
+  let result = "";
+  const body = data.subarray(Ys.length);
+  for (let i = 0; i < body.length; ) {
+    const b = body[i++];
+    if (b < 0x80) {
+      result += String.fromCharCode(b);
+    } else if (b > 0xbf && b < 0xe0) {
+      result += String.fromCharCode(((b & 0x1f) << 6) | (body[i++] & 0x3f));
+    } else if (b > 0xdf && b < 0xf0) {
+      result += String.fromCharCode(
+        ((b & 0xf) << 12) |
+          ((body[i++] & 0x3f) << 6) |
+          (body[i++] & 0x3f)
+      );
+    } else {
+      result += String.fromCharCode(
+        ((b & 0x7) << 18) |
+          ((body[i++] & 0x3f) << 12) |
+          ((body[i++] & 0x3f) << 6) |
+          (body[i++] & 0x3f)
+      );
+    }
+  }
+  return result;
+}
+
+// --- Media helpers ---
+
+function fetchMediaDetails(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    let duration = mediaType === "tv" ? "45 min" : "90 min";
+    try {
+      const type = mediaType === "tv" ? "tv" : "movie";
+      const id = String(tmdbId).replace(/\D/g, "");
+      const url =
+        TMDB_BASE_URL +
+        "/" +
+        type +
+        "/" +
+        id +
+        "?api_key=" +
+        TMDB_API_KEY +
+        "&append_to_response=external_ids";
+
+      const res = yield fetch(url, {
+        headers: {
+          "User-Agent": REQUEST_HEADERS["User-Agent"],
+          Accept: "application/json",
+        },
+      });
+      if (!res.ok) throw new Error("TMDB HTTP " + res.status);
+
+      const data = yield res.json();
+      let finalDuration = duration;
+
+      if (mediaType === "movie" && data.runtime) {
+        finalDuration = data.runtime + " min";
+      } else if (mediaType === "tv" && season != null && episode != null) {
+        const epUrl =
+          TMDB_BASE_URL +
+          "/tv/" +
+          id +
+          "/season/" +
+          season +
+          "/episode/" +
+          episode +
+          "?api_key=" +
+          TMDB_API_KEY;
+        const epRes = yield fetch(epUrl);
+        if (epRes.ok) {
+          const epData = yield epRes.json();
+          if (epData && epData.runtime) {
+            finalDuration = epData.runtime + " min";
+          } else if (
+            data.episode_run_time &&
+            data.episode_run_time.length > 0
+          ) {
+            finalDuration = data.episode_run_time[0] + " min";
+          }
+        }
+      }
+
+      return {
+        title: mediaType === "tv" ? data.name : data.title,
+        year: (mediaType === "tv"
+          ? data.first_air_date
+          : data.release_date || ""
+        ).substring(0, 4),
+        imdbId: (data.external_ids == null ? void 0 : data.external_ids.imdb_id) || null,
+        mediaType,
+        duration: finalDuration,
+      };
+    } catch (err) {
+      console.error("[VidEasy] TMDB details fetch error: " + err.message);
+      return {
+        title: mediaType === "tv" ? "Unknown TV Show" : "Unknown Movie",
+        year: "N/A",
+        imdbId: null,
+        mediaType,
+        duration,
+      };
+    }
+  });
+}
+
+function getLangCode(lang) {
+  if (!lang) return "en";
+  const map = {
+    english: "en",
+    spanish: "es",
+    french: "fr",
+    german: "de",
+    italian: "it",
+    portuguese: "pt",
+    "portuguese (br)": "pt-br",
+    arabic: "ar",
+    japanese: "ja",
+    korean: "ko",
+    tamil: "ta",
+    telugu: "te",
+    malayalam: "ml",
+    kannada: "kn",
+    hindi: "hi",
+    polish: "pl",
+    greek: "el",
+    croatian: "hr",
+    ukrainian: "uk",
+    lithuanian: "lt",
+    thai: "th",
+    estonian: "et",
+    czech: "cs",
+    "zh-tw": "zh-tw",
+    bokmål: "no",
+    dutch: "nl",
+    indonesian: "id",
+    sinhala: "si",
+    swedish: "sv",
+    romanian: "ro",
+    malay: "ms",
+    persian: "fa",
+    slovak: "sk",
+    bulgarian: "bg",
+    turkish: "tr",
+    danish: "da",
+    hebrew: "he",
+    serbian: "sr",
+    vietnamese: "vi",
+    hungarian: "hu",
+    icelandic: "is",
+    albanian: "sq",
+    bosnian: "bs",
+    slovenian: "sl",
+    bengali: "bn",
+    macedonian: "mk",
   };
+  return map[lang.toLowerCase().trim()] || "en";
 }
 
-async function getStreams(id, type, season, episode) {
+function formatStreamsForNuvio(jsonStr, serverName, media, season, episode) {
   try {
-    const mediaType = type === 'tv' ? 'tv' : 'movie';
-    const tmdbData = await tmdbFetch(id, mediaType);
+    const data = JSON.parse(jsonStr);
+    if (!data || typeof data !== "object") return [];
 
-    const doubleEncoded = encodeURIComponent(encodeURIComponent(tmdbData.title));
-    const params = {
-      title: doubleEncoded,
-      mediaType: type === 'tv' ? 'tv' : 'movie',
-      year: tmdbData.year,
-      episodeId: episode || '1',
-      seasonId: season || '1',
-      tmdbId: String(id),
-      imdbId: tmdbData.imdbId,
-      enc: '2',
+    const headers = {
+      Referer: "https://www.vidking.net/",
+      Origin: "https://www.vidking.net",
+      "User-Agent": USER_AGENT,
     };
 
-    const data = await fetchDecrypted(params, id);
-
-    if (!data.sources || !data.sources.length) return [];
-
-    return data.sources.map((s) => ({
-      name: 'Odin',
-      title: `Odin · ${s.quality || 'HD'}`,
-      url: s.url || s.file,
-      quality: s.quality || 'Auto',
-      headers: {
-        Referer: 'https://player.videasy.to/',
-        Origin: 'https://player.videasy.to',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
+    const subtitles = (data.subtitles || []).map((s) => ({
+      url: s.url,
+      language: getLangCode(s.language || s.lang),
+      name: s.language || s.lang || "English",
+      headers,
     }));
-  } catch (e) {
-    console.error('[Odin]', e.message);
+
+    const emojiMap = {
+      Carbon: "💎",
+      Helium: "🎈",
+      Lithium: "🔋",
+      Oxygen: "💨",
+      Krypton: "🦸",
+      Titanium: "🛡️",
+      Hydrogen: "💧",
+      Nitrogen: "🌿",
+      Neon: "💡",
+      Aluminium: "💿",
+    };
+    const emoji = emojiMap[serverName] || "🎬";
+
+    const providerMap = {
+      Hydrogen: "CDN",
+      Titanium: "Tejo",
+      Oxygen: "Neon2",
+      Lithium: "Downloader2",
+      Krypton: "YM",
+      Carbon: "MB-Flix",
+      Aluminium: "LaMovie",
+      Nitrogen: "M4UHD",
+      Neon: "SuperFlix",
+      Helium: "1Movies",
+    };
+    const providerLabel = providerMap[serverName] || serverName;
+
+    const streams = [];
+
+    (data.sources || []).forEach((src) => {
+      if (!src.url) return;
+
+      let quality = src.quality || "1080p";
+      quality = quality.replace(/\s*server\s*2\s*$/gi, "").trim();
+      if (serverName === "Oxygen") quality = "Auto";
+
+      const qLower = quality.toLowerCase();
+      let qualityLabel = "⚡ " + quality;
+      if (qLower.includes("2160") || qLower.includes("4k")) {
+        qualityLabel = "🌟 2160p";
+      } else if (qLower.includes("1080")) {
+        qualityLabel = "🔥 1080p";
+      } else if (qLower.includes("720")) {
+        qualityLabel = "⚡ 720p";
+      } else if (qLower === "auto") {
+        qualityLabel = "⚡ Auto";
+      }
+
+      let audioLabel = "Original Audio";
+      let audioEmoji = "🌍 Original Audio";
+
+      if (serverName === "Hydrogen" || serverName === "Krypton") {
+        audioLabel = "Original Audio";
+        audioEmoji = "🌍 Original Audio";
+      } else if (serverName === "Oxygen") {
+        audioLabel = "Multi-Audio";
+        audioEmoji = "🌍 Multi-Audio";
+      } else if (serverName === "Aluminium") {
+        audioLabel = "Dual-Audio";
+        audioEmoji = "🌍 Dual-Audio";
+      } else if (serverName === "Magnesium") {
+        const titleLower = (src.title || "").toLowerCase();
+        if (titleLower.includes("bengali") || titleLower.includes("bangla")) {
+          audioLabel = "Bengali";
+          audioEmoji = "🇧🇩 Bengali";
+        } else {
+          audioLabel = "Normal Hindi";
+          audioEmoji = "🇮🇳 Hindi";
+        }
+      }
+
+      const format = src.url.includes(".m3u8")
+        ? "M3U8"
+        : src.url.includes(".mp4")
+        ? "MP4"
+        : "MKV";
+
+      const titleBase =
+        media.title +
+        (media.mediaType === "tv" ? " S" + season + "E" + episode : "");
+
+      let displayServer = serverName;
+      if (displayServer === "Krypton") {
+        displayServer = displayServer
+          .replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "")
+          .trim();
+      }
+
+      const description =
+        "🎬 " +
+        titleBase +
+        " - (" +
+        media.year +
+        ")\n" +
+        qualityLabel +
+        " | " +
+        audioEmoji +
+        " | 🎧 AAC\n🎞️ " +
+        format +
+        " | ⏱️ " +
+        media.duration +
+        "\n" +
+        emoji +
+        " " +
+        displayServer +
+        " | 🔗 Provider: " +
+        providerLabel;
+
+      streams.push({
+        name: "VidEasy | " + quality + " | " + audioLabel,
+        title: description,
+        size: description,
+        description,
+        url: src.url,
+        quality: "",
+        language: "",
+        headers,
+        subtitles,
+        provider: "videasy",
+        _is4k: qLower.includes("2160") || qLower.includes("4k"),
+        _serverName: serverName,
+      });
+    });
+
+    return streams;
+  } catch (err) {
+    console.error("[VidEasy] Formatting error: " + err.message);
     return [];
   }
 }
 
-module.exports = { getStreams, name: 'Odin', supportedTypes: ['movie', 'tv'] };
+function fetchFromWingsServer(
+  serverName,
+  serverConfig,
+  mediaType,
+  tmdbId,
+  mediaDetails,
+  seed,
+  season,
+  episode
+) {
+  return __async(this, null, function* () {
+    const params = {
+      title: mediaDetails.title,
+      mediaType,
+      year: String(mediaDetails.year),
+      episodeId: String(episode || 1),
+      seasonId: String(season || 1),
+      tmdbId: String(tmdbId),
+      imdbId: mediaDetails.imdbId || "",
+      enc: "2",
+      seed,
+    };
+
+    const query = Object.keys(params)
+      .map((k) => encodeURIComponent(k) + "=" + encodeURIComponent(params[k]))
+      .join("&");
+
+    const url = WINGS_API_BASE + "/" + serverConfig.path + "?" + query;
+    console.log("[VidEasy] Querying server " + serverName + ": " + url);
+
+    try {
+      const res = yield fetch(url, { headers: REQUEST_HEADERS });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+
+      const text = yield res.text();
+      if (!text || text.trim() === "") throw new Error("Empty response");
+
+      const decrypted = decryptWingsDatabase(text, seed, Number(tmdbId));
+      if (!decrypted) return [];
+
+      const streams = formatStreamsForNuvio(
+        decrypted,
+        serverName,
+        mediaDetails,
+        season,
+        episode
+      );
+      console.log(
+        "[VidEasy] ✅ Found " + streams.length + " stream(s) from " + serverName
+      );
+      return streams;
+    } catch (err) {
+      console.warn(
+        "[VidEasy] ❌ Error from " + serverName + ": " + err.message
+      );
+      return [];
+    }
+  });
+}
+
+function getStreams(tmdbId, mediaType, season = null, episode = null) {
+  return __async(this, null, function* () {
+    console.log(
+      "[VidEasy] Starting extraction for TMDB ID: " +
+        tmdbId +
+        ", Type: " +
+        mediaType +
+        (mediaType === "tv" ? ", S:" + season + "E:" + episode : "")
+    );
+
+    try {
+      const media = yield fetchMediaDetails(tmdbId, mediaType, season, episode);
+      if (!media) {
+        console.error("[VidEasy] Failed to fetch media details from TMDB.");
+        return [];
+      }
+
+      console.log(
+        '[VidEasy] Media Details: "' +
+          media.title +
+          '" (' +
+          media.year +
+          ") | Duration: " +
+          media.duration
+      );
+
+      const seedUrl = WINGS_API_BASE + "/seed?mediaId=" + tmdbId;
+      console.log("[VidEasy] Fetching seed from: " + seedUrl);
+
+      const seedRes = yield fetch(seedUrl, { headers: REQUEST_HEADERS });
+      if (!seedRes.ok) throw new Error("Seed HTTP " + seedRes.status);
+
+      const seedData = yield seedRes.json();
+      const seed = seedData.seed;
+      if (!seed) throw new Error("No seed returned from API");
+
+      console.log("[VidEasy] Seed successfully retrieved: " + seed);
+
+      const promises = Object.keys(SERVERS).map((name) => {
+        return fetchFromWingsServer(
+          name,
+          SERVERS[name],
+          mediaType,
+          tmdbId,
+          media,
+          seed,
+          season,
+          episode
+        );
+      });
+
+      const results = yield Promise.all(promises);
+      const allStreams = [];
+      results.forEach((list) => allStreams.push(...list));
+
+      // Deduplicate by URL
+      const unique = [];
+      const seen = new Set();
+      allStreams.forEach((s) => {
+        if (!seen.has(s.url)) {
+          seen.add(s.url);
+          unique.push(s);
+        }
+      });
+
+      // Sort: 4K first, then by server order
+      const serverOrder = Object.keys(SERVERS);
+      unique.sort((a, b) => {
+        if (a._is4k && !b._is4k) return -1;
+        if (!a._is4k && b._is4k) return 1;
+        return (
+          serverOrder.indexOf(a._serverName) - serverOrder.indexOf(b._serverName)
+        );
+      });
+
+      console.log(
+        "[VidEasy] Total unique streams found: " + unique.length
+      );
+      return unique;
+    } catch (err) {
+      console.error("[VidEasy] Error in getStreams: " + err.message);
+      return [];
+    }
+  });
+}
+
+module.exports = { getStreams, name: "Odin" };

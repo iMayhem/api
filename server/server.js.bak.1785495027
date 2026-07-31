@@ -1125,28 +1125,6 @@ function rewriteHlsPlaylist(playlist, baseUrl, headers, host) {
   const headerB64 = encodeB64url(JSON.stringify(headers));
   const prefix = host ? `https://${host}` : '';
 
-  // Media playlists MUST contain #EXT-X-TARGETDURATION (hls.js rejects them with levelParsingError).
-  // Some CDNs omit it - inject it based on the largest EXTINF duration seen.
-  if (playlist.startsWith('#EXTM3U') && !playlist.includes('#EXT-X-TARGETDURATION:')) {
-    let maxDur = 0;
-    const durRe = /#EXTINF:\s*(\d*(?:\.\d+)?)/g;
-    let m;
-    while ((m = durRe.exec(playlist)) !== null) {
-      const d = parseFloat(m[1]);
-      if (d > maxDur) maxDur = d;
-    }
-    if (maxDur > 0) {
-      const target = Math.ceil(maxDur);
-      const targetLine = `#EXT-X-TARGETDURATION:${target}`;
-      const m3uMatch = playlist.match(/^(#EXTM3U\r?\n(?:#EXT-X-VERSION:[^\r\n]*\r?\n)?)/);
-      if (m3uMatch) {
-        playlist = playlist.replace(m3uMatch[1], `${m3uMatch[1]}${targetLine}\n`);
-      } else {
-        playlist = `#EXTM3U\n${targetLine}\n` + playlist.replace(/^#EXTM3U\r?\n?/, '');
-      }
-    }
-  }
-
   // Reorder master playlist variants by bandwidth descending so highest quality plays first
   const lines = playlist.split('\n');
   if (playlist.includes('#EXT-X-STREAM-INF:')) {
@@ -1277,7 +1255,6 @@ app.get('/proxy', async (req, res) => {
     const response = await fetch(targetUrl, opts);
 
     if (!response.ok && response.status !== 206) {
-      console.log(`[proxy] ${req.headers['x-real-ip'] || req.ip || ''} ${targetUrl} -> STATUS ${response.status} (not ok)`);
       return res.status(response.status).send(`Provider returned ${response.status}`);
     }
 
@@ -1298,7 +1275,6 @@ app.get('/proxy', async (req, res) => {
     if (first.done) { res.end(); return; }
 
     const firstHead = Buffer.from(first.value).toString('utf8', 0, Math.min(first.value.length, 30));
-    console.log(`[proxy] ${req.headers['x-real-ip'] || req.ip || ''} ${targetUrl} -> ${response.status} ct=${contentType} first=0x${Buffer.from(first.value.slice(0, 8)).toString('hex')}`);
 
     if (firstHead.startsWith('#EXTM3U') && targetUrl) {
       const allChunks = [first.value];
