@@ -1,7 +1,7 @@
 {
   "totals": {
-    "pageViews": 49,
-    "plays": 4,
+    "pageViews": 54,
+    "plays": 7,
     "errors": 0,
     "qualityChanges": 0,
     "audioChanges": 0,
@@ -38,9 +38,10 @@
       "40.77.179.235",
       "40.77.177.104",
       "40.77.177.199",
-      "65.55.210.255"
+      "65.55.210.255",
+      "2409:40d0:293:a270:ba19:9f2d:297e:fdc1"
     ],
-    "watchTimeMs": 4800000
+    "watchTimeMs": 4825000
   },
   "events": [
     {
@@ -4374,6 +4375,155 @@
         "mediaType": "movie",
         "title": ""
       }
+    },
+    {
+      "id": "3e5be9a2-433f-4650-a192-054a86dd6b46",
+      "type": "pageview",
+      "sessionId": "sid_jp1vt8e6ms8okfiv",
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "time": 1785486509321,
+      "data": {
+        "domain": "providers.peestream.in",
+        "referrer": "https://providers.peestream.in/",
+        "currentUrl": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+        "tmdbId": "550",
+        "mediaType": "movie",
+        "title": ""
+      }
+    },
+    {
+      "id": "c3d49631-e7d5-41d5-82e1-3d78d46d599c",
+      "type": "play",
+      "sessionId": "sid_jp1vt8e6ms8okfiv",
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "time": 1785486514542,
+      "data": {
+        "domain": "providers.peestream.in",
+        "referrer": "https://providers.peestream.in/",
+        "currentUrl": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+        "tmdbId": "550",
+        "mediaType": "movie",
+        "title": ""
+      }
+    },
+    {
+      "id": "df986e23-7ecf-477a-87e3-9a8ef26efbd2",
+      "type": "pageview",
+      "sessionId": "sid_jp1vt8e6ms8okfiv",
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "time": 1785486517998,
+      "data": {
+        "domain": "providers.peestream.in",
+        "referrer": "https://providers.peestream.in/?",
+        "currentUrl": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+        "tmdbId": "550",
+        "mediaType": "movie",
+        "title": ""
+      }
+    },
+    {
+      "id": "9b23e3c0-c07d-4595-99ec-362d02a0561b",
+      "type": "play",
+      "sessionId": "sid_jp1vt8e6ms8okfiv",
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "time": 1785486523063,
+      "data": {
+        "domain": "providers.peestream.in",
+        "referrer": "https://providers.peestream.in/?",
+        "currentUrl": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+        "tmdbId": "550",
+        "mediaType": "movie",
+        "title": ""
+      }
+    },
+    {
+      "id": "176f33bb-e2e7-4a14-bb09-f3ee3db7c09b",
+      "type": "heartbeat",
+      "sessionId": "sid_jp1vt8e6ms8okfiv",
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "time": 1785486543181,
+      "data": {
+        "domain": "providers.peestream.in",
+        "referrer": "https://providers.peestream.in/?",
+        "currentUrl": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+        "tmdbId": "550",
+        "mediaType": "movie",
+        "title": "",
+        "duration": 25000
+      }
+    },
+    {
+      "id": "25c6786f-7e0b-47cc-ac6b-483e385117af",
+      "type": "pageview",
+      "sessionId": "sid_jp1vt8e6ms8okfiv",
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "time": 1785486545378,
+      "data": {
+        "domain": "providers.peestream.in",
+        "referrer": "https://providers.peestream.in/?",
+        "currentUrl": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+        "tmdbId": "550",
+        "mediaType": "movie",
+        "title": ""
+      }
+    },
+    {
+      "id": "9c8d18d5-0788-4ccf-80b9-3255897640ee",
+      "type": "play",
+      "sessionId": "sid_jp1vt8e6ms8okfiv",
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "time": 1785486549949,
+      "data": {
+        "domain": "providers.peestream.in",
+        "referrer": "https://providers.peestream.in/?",
+        "currentUrl": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+        "tmdbId": "550",
+        "mediaType": "movie",
+        "title": ""
+      }
+    },
+    {
+      "id": "0215b9c9-9ca6-47c2-a0db-6d9aefd8eea3",
+      "type": "pageview",
+      "sessionId": "sid_jp1vt8e6ms8okfiv",
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "time": 1785486564174,
+      "data": {
+        "domain": "providers.peestream.in",
+        "referrer": "https://providers.peestream.in/?",
+        "currentUrl": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+        "tmdbId": "550",
+        "mediaType": "movie",
+        "title": ""
+      }
+    },
+    {
+      "id": "e9988d71-f21f-44b9-9754-47ec08070c89",
+      "type": "pageview",
+      "sessionId": "ms8om5h7phgynjbm",
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/",
+      "time": 1785486590332,
+      "data": {
+        "url": "https://providers.peestream.in/"
+      }
     }
   ],
   "sessions": {
@@ -4736,7 +4886,44 @@
       "pageViews": 1,
       "plays": 0,
       "errors": 0
+    },
+    "sid_jp1vt8e6ms8okfiv": {
+      "firstSeen": 1785486509322,
+      "lastSeen": 1785486564174,
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "pageViews": 4,
+      "plays": 3,
+      "errors": 0
+    },
+    "ms8om5h7phgynjbm": {
+      "firstSeen": 1785486590332,
+      "lastSeen": 1785486590332,
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/",
+      "pageViews": 1,
+      "plays": 0,
+      "errors": 0
     }
   },
-  "realtimeSessions": {}
+  "realtimeSessions": {
+    "sid_jp1vt8e6ms8okfiv": {
+      "lastPing": 1785486564174,
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "currentUrl": "https://providers.peestream.in/embed/?tmdbId=550&type=movie",
+      "currentStream": ""
+    },
+    "ms8om5h7phgynjbm": {
+      "lastPing": 1785486590332,
+      "ip": "2409:40d0:293:a270:ba19:9f2d:297e:fdc1",
+      "userAgent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+      "referrer": "https://providers.peestream.in/",
+      "currentUrl": "",
+      "currentStream": ""
+    }
+  }
 }

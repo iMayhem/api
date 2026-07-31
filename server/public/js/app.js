@@ -1570,7 +1570,7 @@ document.addEventListener('keydown', function(e) {
 
 
 // ── Scraper Test View ───────────────────────────────────────────────────
-let testEventSource = null;
+let scraperTestSource = null;
 let testProvidersLoaded = false;
 
 async function initScraperTest() {
@@ -1614,7 +1614,7 @@ function testAppendRaw(text) {
 }
 
 function clearScraperTest() {
-  if (testEventSource) { testEventSource.close(); testEventSource = null; }
+  if (scraperTestSource) { scraperTestSource.close(); scraperTestSource = null; }
   document.getElementById('testEventLog').innerHTML = '';
   document.getElementById('testRawOutput').textContent = 'Run a test to see raw output...';
   document.getElementById('testStatus').innerText = '';
@@ -1631,7 +1631,7 @@ function runScraperTest() {
   if (!tmdbId) { alert('Enter a TMDB ID'); return; }
   if (mode === 'isolated' && !provider) { alert('Select a provider for isolated test'); return; }
 
-  if (testEventSource) testEventSource.close();
+  if (scraperTestSource) scraperTestSource.close();
   document.getElementById('testEventLog').innerHTML = '';
   testAppendRaw('');
   const status = document.getElementById('testStatus');
@@ -1646,7 +1646,7 @@ function runScraperTest() {
   }
 
   const es = new EventSource(url);
-  testEventSource = es;
+  scraperTestSource = es;
   const streams = [];
   const events = {};
 
@@ -1673,7 +1673,7 @@ function runScraperTest() {
   es.addEventListener('noOutput', () => testAppend('noOutput', 'No streams'));
   es.addEventListener('done', () => {
     es.close();
-    testEventSource = null;
+    scraperTestSource = null;
     testAppend('done', 'finished');
     if (streams.length === 0) {
       status.innerText = '❌ No streams found';
@@ -1686,7 +1686,7 @@ function runScraperTest() {
   es.onerror = (err) => {
     testAppend('error', 'SSE connection lost');
     es.close();
-    testEventSource = null;
+    scraperTestSource = null;
     status.innerText = '❌ Connection lost';
     status.style.color = '#ef4444';
   };
