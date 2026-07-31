@@ -1059,6 +1059,14 @@ async function loadProvidersView() {
           </div>
         </div>
         <div class="controls">
+          <div class="proxy-mode-row" title="Proxy mode: Auto = proxy only ip-locked streams, Always = proxy everything, Off = raw URLs">
+            <label style="font-size:11px;color:var(--text2,#888);margin-right:4px">Proxy</label>
+            <select data-provider="${id}" onchange="setProxyMode('${id}', this.value)" style="padding:4px 6px;border-radius:6px;background:#15152a;color:#e5e7eb;border:1px solid rgba(255,255,255,.12);font-size:11px">
+              <option value="auto" ${(p.proxyMode || 'auto') === 'auto' ? 'selected' : ''}>Auto</option>
+              <option value="force" ${p.proxyMode === 'force' ? 'selected' : ''}>Always</option>
+              <option value="off" ${p.proxyMode === 'off' ? 'selected' : ''}>Off (raw)</option>
+            </select>
+          </div>
           <div class="priority-btns">
             <button onclick="movePriority('${id}', -1)" title="Move up">▲</button>
             <button onclick="movePriority('${id}', 1)" title="Move down">▼</button>
@@ -1087,6 +1095,15 @@ async function loadProvidersView() {
 async function toggleAllProviders(enabled) {
   await api('/api/providers/toggle-all', { method: 'POST', body: JSON.stringify({ enabled }) });
   loadProvidersView();
+}
+
+async function setProxyMode(id, mode) {
+  try {
+    await api('/api/providers/' + id + '/proxy', { method: 'POST', body: JSON.stringify({ mode }) });
+  } catch (e) {
+    alert('Failed to set proxy mode: ' + e.message);
+    loadProvidersView();
+  }
 }
 
 async function loadSettings() {

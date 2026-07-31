@@ -47,14 +47,17 @@ function makeStreamUrlsAbsolute(mwStream, host) {
   }
 }
 
-function maybeProxyStream(mwStream) {
-  if (!mwStream.headers || Object.keys(mwStream.headers).length === 0) return false;
+function maybeProxyStream(mwStream, providerId) {
+  const mode = config.providers[providerId]?.proxyMode || 'auto';
+  const hasHeaders = mwStream.headers && Object.keys(mwStream.headers).length > 0;
+  if (mode === 'off') return false;
+  if (mode === 'auto' && !hasHeaders) return false;
   const targetUrl = mwStream.playlist || mwStream.url || (mwStream.qualities ? Object.values(mwStream.qualities)[0]?.url : null);
   if (!targetUrl) return false;
   const params = new URLSearchParams({ url: targetUrl });
-  if (mwStream.headers.Referer) params.set('referer', mwStream.headers.Referer);
-  if (mwStream.headers.Origin) params.set('origin', mwStream.headers.Origin);
-  if (mwStream.headers['User-Agent']) params.set('ua', mwStream.headers['User-Agent']);
+  if (mwStream.headers?.Referer) params.set('referer', mwStream.headers.Referer);
+  if (mwStream.headers?.Origin) params.set('origin', mwStream.headers.Origin);
+  if (mwStream.headers?.['User-Agent']) params.set('ua', mwStream.headers['User-Agent']);
   const proxy = `https://cf-header-proxy.moovie.fun/?${params.toString()}`;
   if (mwStream.type === 'hls') {
     mwStream.playlist = proxy;
@@ -96,9 +99,10 @@ function loadConfig() {
           if (typeof p.enabled === 'boolean') cfg.providers[id].enabled = p.enabled;
           if (typeof p.priority === 'number') cfg.providers[id].priority = p.priority;
           if (Array.isArray(p.disabledServers)) cfg.providers[id].disabledServers = p.disabledServers;
+          if (['auto', 'force', 'off'].includes(p.proxyMode)) cfg.providers[id].proxyMode = p.proxyMode;
         } else {
           // Provider exists in user file but not in defaults — add it
-          cfg.providers[id] = { enabled: p.enabled !== false, priority: p.priority || Object.keys(cfg.providers).length + 1, disabledServers: p.disabledServers || [] };
+          cfg.providers[id] = { enabled: p.enabled !== false, priority: p.priority || Object.keys(cfg.providers).length + 1, disabledServers: p.disabledServers || [], proxyMode: p.proxyMode || 'auto' };
         }
       }
     }
@@ -109,7 +113,7 @@ function loadConfig() {
 function saveConfig() {
   const providersOnly = {};
   for (const [id, p] of Object.entries(config.providers || {})) {
-    providersOnly[id] = { enabled: p.enabled, priority: p.priority, disabledServers: p.disabledServers || [] };
+    providersOnly[id] = { enabled: p.enabled, priority: p.priority, disabledServers: p.disabledServers || [], proxyMode: p.proxyMode || 'auto' };
   }
   fs.writeFileSync(USER_PROVIDERS_PATH, JSON.stringify(providersOnly, null, 2));
 }
@@ -582,7 +586,7 @@ app.get('/scrape', async (req, res) => {
           const pct = Math.round(85 + ((i + 1) / filtered.length) * 15);
           sse.emit('update', { id, percentage: pct, status: 'success' });
           makeStreamUrlsAbsolute(mwStream, req.headers.host);
-          if (req.query.proxy === '1') maybeProxyStream(mwStream);
+          if (req.query.proxy === '1') maybeProxyStream(mwStream, id);
           const output = { sourceId: id, stream: mwStream };
           sse.emit('completed', output);
           completedAny = true;
@@ -671,7 +675,7 @@ app.get('/scrape/source', async (req, res) => {
         if (mwStreams.length > 0) {
           sse.emit('update', { id: currentId, percentage: 100, status: 'success' });
           mwStreams.forEach(s => makeStreamUrlsAbsolute(s, req.headers.host));
-          if (req.query.proxy === '1') mwStreams.forEach(s => maybeProxyStream(s));
+          if (req.query.proxy === '1') mwStreams.forEach(s => maybeProxyStream(s, currentId));
           const output = { embeds: [], stream: mwStreams };
           sse.emit('completed', output);
           completedAny = true;
@@ -724,6 +728,7 @@ app.get('/api/providers', (req, res) => {
       enabled: config.providers[id]?.enabled ?? true,
       priority: config.providers[id]?.priority ?? 999,
       disabledServers: config.providers[id]?.disabledServers || [],
+      proxyMode: config.providers[id]?.proxyMode || 'auto',
     };
   }
   res.json(result);
@@ -780,6 +785,17 @@ app.post('/api/providers/:id/servers', (req, res) => {
   config.providers[id].disabledServers = disabledServers || [];
   saveConfig();
   res.json({ id, disabledServers: config.providers[id].disabledServers });
+});
+
+// Set proxy mode for a provider (auto = proxy ip-locked only, force = always, off = raw)
+app.post('/api/providers/:id/proxy', (req, res) => {
+  const { id } = req.params;
+  const { mode } = req.body;
+  if (!config.providers[id]) return res.status(404).json({ error: 'Provider not found' });
+  if (!['auto', 'force', 'off'].includes(mode)) return res.status(400).json({ error: 'mode must be auto, force or off' });
+  config.providers[id].proxyMode = mode;
+  saveConfig();
+  res.json({ id, proxyMode: mode });
 });
 
 // Subtitles endpoint
