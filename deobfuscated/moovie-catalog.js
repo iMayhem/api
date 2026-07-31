@@ -189,7 +189,8 @@ async function getTmdbTitles(id, type) {
 }
 
 async function fetchMetadata(type, id) {
-  const data = await fetchJson(`${CATALOG_API}/${type}/${id}`, {
+  const apiType = type === tv ? Tv : Movie;
+  const data = await fetchJson(`${CATALOG_API}/${apiType}/${id}`, {
     'Content-Type': 'application/json',
   });
   return data?.results?.[0] || null;
