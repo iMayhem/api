@@ -140,6 +140,7 @@ function switchView(name) {
   if (name === 'info') loadInfo();
   if (name === 'player') initPlyr();
   if (name === 'embed') initEmbedView();
+  else if (embedLogSource) { embedLogSource.close(); embedLogSource = null; }
   if (name === 'scraper-test') initScraperTest();
 }
 

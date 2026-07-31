@@ -131,7 +131,7 @@
       <input type="text" id="embedSeason" placeholder="Season" style="width:80px">
       <input type="text" id="embedEpisode" placeholder="Episode" style="width:80px">
       <button onclick="loadEmbed()" style="background:var(--accent,#a359ec);color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer">▶️ Load Embed</button>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2,#888)"><input type="checkbox" id="embedLiveLogs" checked> Live logs</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2,#888)"><input type="checkbox" id="embedLiveLogs" checked onchange="connectEmbedLogs()"> Live logs</label>
       <button onclick="clearEmbedLogs()" style="background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3);padding:8px 14px;border-radius:8px;cursor:pointer">🧹 Clear Logs</button>
     </div>
     <div style="display:grid;grid-template-columns:minmax(320px,1fr) minmax(360px,1fr);gap:14px;align-items:start">
