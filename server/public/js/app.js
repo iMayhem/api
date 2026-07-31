@@ -139,6 +139,61 @@ function switchView(name) {
   if (name === 'analytics') loadAnalytics();
   if (name === 'info') loadInfo();
   if (name === 'player') initPlyr();
+  if (name === 'embed') initEmbedView();
+  if (name === 'scraper-test') initScraperTest();
+}
+
+// ── Embed Debug View ───────────────────────────────────────────────────
+let embedLogSource = null;
+
+function initEmbedView() {
+  const prev = document.getElementById('embedTmdbId').value || '550';
+  if (!document.getElementById('embedFrame').src.includes('tmdbId=')) loadEmbed(prev, 'movie');
+  connectEmbedLogs();
+}
+
+function loadEmbed(tmdbId, type, season, episode) {
+  const id = tmdbId || document.getElementById('embedTmdbId').value.trim() || '550';
+  const t = type || document.getElementById('embedType').value;
+  const s = season || document.getElementById('embedSeason').value;
+  const e = episode || document.getElementById('embedEpisode').value;
+  let url = `/embed/?tmdbId=${id}&type=${t}`;
+  if (s) url += `&season=${s}`;
+  if (e) url += `&episode=${e}`;
+  document.getElementById('embedFrame').src = url;
+  if (document.getElementById('embedLiveLogs').checked) connectEmbedLogs();
+}
+
+function clearEmbedLogs() {
+  document.getElementById('embedLogPanel').innerHTML = '';
+}
+
+function connectEmbedLogs() {
+  if (embedLogSource) { embedLogSource.close(); embedLogSource = null; }
+  if (!document.getElementById('embedLiveLogs').checked) {
+    document.getElementById('embedLogStatus').innerText = 'disabled';
+    return;
+  }
+  const panel = document.getElementById('embedLogPanel');
+  const status = document.getElementById('embedLogStatus');
+  status.innerText = 'connecting...';
+  status.style.color = '#f59e0b';
+  embedLogSource = new EventSource('/api/scrape/log');
+  embedLogSource.onopen = () => { status.innerText = '● live'; status.style.color = '#22c55e'; };
+  embedLogSource.onerror = () => { status.innerText = 'reconnecting...'; status.style.color = '#f59e0b'; };
+  embedLogSource.onmessage = (e) => {
+    try {
+      const entry = JSON.parse(e.data);
+      const time = new Date(entry.time).toLocaleTimeString();
+      const colors = { info: '#8b8fa3', success: '#22c55e', warn: '#f59e0b', error: '#ef4444' };
+      const color = colors[entry.type] || '#8b8fa3';
+      const line = document.createElement('div');
+      line.style.cssText = 'white-space:pre-wrap;word-break:break-all';
+      line.innerHTML = `<span style="color:#555968">${time}</span> <span style="color:${color};font-weight:${entry.type === 'error' ? 700 : 400}">${entry.message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
+      panel.appendChild(line);
+      panel.scrollTop = panel.scrollHeight;
+    } catch (err) {}
+  };
 }
 
 async function doSearch() {
@@ -1512,3 +1567,127 @@ document.addEventListener('keydown', function(e) {
     video.currentTime = Math.min(video.duration, video.currentTime + 10);
   }
 });
+
+
+// ── Scraper Test View ───────────────────────────────────────────────────
+let testEventSource = null;
+let testProvidersLoaded = false;
+
+async function initScraperTest() {
+  if (testProvidersLoaded) return;
+  testProvidersLoaded = true;
+  const sel = document.getElementById('testProvider');
+  try {
+    const provs = await api('/api/providers');
+    const sorted = Object.entries(provs).sort((a, b) => (a[1].priority || 999) - (b[1].priority || 999));
+    sorted.forEach(function([id, p]) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = `${p.name || id} ${p.enabled ? '' : '(disabled)'}`;
+      sel.appendChild(opt);
+    });
+    const firstEnabled = sorted.find(function([id, p]) { return p.enabled; });
+    if (firstEnabled) sel.value = firstEnabled[0];
+  } catch (e) {
+    sel.innerHTML = '<option value="">Failed to load providers</option>';
+  }
+}
+
+function testAppend(event, data) {
+  const log = document.getElementById('testEventLog');
+  const colors = { start: '#60a5fa', update: '#8b8fa3', completed: '#22c55e', done: '#888', noOutput: '#f59e0b', error: '#ef4444' };
+  const color = colors[event] || '#8b8fa3';
+  const line = document.createElement('div');
+  line.style.cssText = 'white-space:pre-wrap;word-break:break-all;padding:1px 0';
+  let text = '';
+  try {
+    text = typeof data === 'string' ? data : JSON.stringify(data);
+  } catch (e) { text = String(data); }
+  line.innerHTML = `<span style="color:${color};font-weight:700">event: ${event}</span> <span style="color:#c9ced6">${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+function testAppendRaw(text) {
+  const pre = document.getElementById('testRawOutput');
+  pre.textContent = text;
+}
+
+function clearScraperTest() {
+  if (testEventSource) { testEventSource.close(); testEventSource = null; }
+  document.getElementById('testEventLog').innerHTML = '';
+  document.getElementById('testRawOutput').textContent = 'Run a test to see raw output...';
+  document.getElementById('testStatus').innerText = '';
+}
+
+function runScraperTest() {
+  const provider = document.getElementById('testProvider').value;
+  const mode = document.getElementById('testMode').value;
+  const tmdbId = document.getElementById('testTmdbId').value.trim();
+  const type = document.getElementById('testType').value;
+  const season = document.getElementById('testSeason').value.trim();
+  const episode = document.getElementById('testEpisode').value.trim();
+
+  if (!tmdbId) { alert('Enter a TMDB ID'); return; }
+  if (mode === 'isolated' && !provider) { alert('Select a provider for isolated test'); return; }
+
+  if (testEventSource) testEventSource.close();
+  document.getElementById('testEventLog').innerHTML = '';
+  testAppendRaw('');
+  const status = document.getElementById('testStatus');
+
+  let url;
+  if (mode === 'isolated') {
+    url = `/scrape/source?id=${encodeURIComponent(provider)}&tmdbId=${encodeURIComponent(tmdbId)}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}&fallback=false`;
+    status.innerText = `Testing ${provider} (isolated)...`;
+  } else {
+    url = `/scrape?tmdbId=${encodeURIComponent(tmdbId)}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}`;
+    status.innerText = 'Running embed-mode scrape...';
+  }
+
+  const es = new EventSource(url);
+  testEventSource = es;
+  const streams = [];
+  const events = {};
+
+  es.addEventListener('init', (e) => {
+    const data = JSON.parse(e.data);
+    events.init = data;
+    testAppend('init', data);
+    status.innerText = `Providers: ${data.sourceIds.join(', ')}`;
+  });
+  es.addEventListener('start', (e) => testAppend('start', e.data));
+  es.addEventListener('update', (e) => {
+    const data = JSON.parse(e.data);
+    testAppend('update', data);
+    if (data.note) status.innerText = `[${data.id}] ${data.note}`;
+  });
+  es.addEventListener('completed', (e) => {
+    const data = JSON.parse(e.data);
+    testAppend('completed', data);
+    if (data.stream) streams.push({ sourceId: data.sourceId, stream: data.stream });
+    if (Array.isArray(data.stream)) streams.push(...data.stream.map((s, i) => ({ sourceId: `${data.sourceId}-${i}`, stream: s })));
+    testAppendRaw(JSON.stringify(streams, null, 2));
+    status.innerText = `${streams.length} stream(s) resolved`;
+  });
+  es.addEventListener('noOutput', () => testAppend('noOutput', 'No streams'));
+  es.addEventListener('done', () => {
+    es.close();
+    testEventSource = null;
+    testAppend('done', 'finished');
+    if (streams.length === 0) {
+      status.innerText = '❌ No streams found';
+      status.style.color = '#ef4444';
+    } else {
+      status.innerText = `✅ ${streams.length} stream(s) found`;
+      status.style.color = '#22c55e';
+    }
+  });
+  es.onerror = (err) => {
+    testAppend('error', 'SSE connection lost');
+    es.close();
+    testEventSource = null;
+    status.innerText = '❌ Connection lost';
+    status.style.color = '#ef4444';
+  };
+}

@@ -244,38 +244,36 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ============ Authentication & Locked Panel ============
-const ADMIN_USERNAME = process.env.ADMIN_USER || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'peestream2026';
+const ADMIN_USERNAME = process.env.ADMIN_USER || "admin";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "peestream2026";
 const authSessions = new Set();
 
 function isReqAuthenticated(req) {
-  const authHeader = req.headers['authorization'];
-  const token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7) : (req.headers['x-admin-token'] || req.query.token);
+  const authHeader = req.headers["authorization"];
+  const token = (authHeader && authHeader.startsWith("Bearer ")) ? authHeader.slice(7) : req.headers["x-admin-token"];
   return token && authSessions.has(token);
 }
 
-app.post('/api/auth/login', (req, res) => {
+app.post("/api/auth/login", (req, res) => {
   const { username, password } = req.body || {};
   if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-    const token = crypto.randomBytes(32).toString('hex');
+    const token = crypto.randomBytes(32).toString("hex");
     authSessions.add(token);
     return res.json({ success: true, token });
   }
-  return res.status(401).json({ success: false, error: 'Invalid username or password' });
+  return res.status(401).json({ success: false, error: "Invalid username or password" });
 });
 
-app.get('/api/auth/check', (req, res) => {
+app.get("/api/auth/check", (req, res) => {
   res.json({ authenticated: Boolean(isReqAuthenticated(req)) });
 });
 
-app.post('/api/auth/logout', (req, res) => {
-  const authHeader = req.headers['authorization'];
-  const token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7) : req.headers['x-admin-token'];
+app.post("/api/auth/logout", (req, res) => {
+  const authHeader = req.headers["authorization"];
+  const token = (authHeader && authHeader.startsWith("Bearer ")) ? authHeader.slice(7) : req.headers["x-admin-token"];
   if (token) authSessions.delete(token);
   res.json({ success: true });
 });
-
 
 // ============ movie-web SSE Provider API (before static to ensure priority) ============
 
@@ -400,6 +398,46 @@ function sendSSE(req, res) {
   return { emit, cancelled: () => cancelled };
 }
 
+// ============ Scrape Log Broadcast (for dashboard realtime logs) ============
+const scrapeLogClients = new Set();
+
+function broadcastScrapeLog(entry) {
+  const payload = `data: ${JSON.stringify(entry)}\n\n`;
+  for (const client of scrapeLogClients) {
+    try { client.write(payload); } catch (e) { scrapeLogClients.delete(client); }
+  }
+}
+
+app.get('/api/scrape/log', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.flushHeaders();
+  res.write(`data: ${JSON.stringify({ time: Date.now(), type: 'info', message: 'Log stream connected' })}\n\n`);
+  scrapeLogClients.add(res);
+  req.on('close', () => scrapeLogClients.delete(res));
+});
+
+function logScrape(type, message, extra) {
+  broadcastScrapeLog({ time: Date.now(), type, message, ...(extra || {}) });
+}
+
+// Client-side embed logs (embed POSTs its own debug events here)
+app.post('/api/scrape/client-log', (req, res) => {
+  const { type, message, tmdbId } = req.body || {};
+  broadcastScrapeLog({
+    time: Date.now(),
+    type: type || 'info',
+    message: `[client${tmdbId ? `:${tmdbId}` : ''}] ${message || ''}`,
+    source: 'client'
+  });
+  res.json({ ok: true });
+});
+
+
 // GET /scrape - SSE endpoint that runs all scrapers (movie-web runAll)
 app.get('/scrape', async (req, res) => {
   const { type, tmdbId, season, episode, seasonNumber, episodeNumber } = req.query;
@@ -412,11 +450,13 @@ app.get('/scrape', async (req, res) => {
 
   let completedAny = false;
   sse.emit('init', { sourceIds });
+  logScrape('info', `Scrape started: type=${type || 'movie'} tmdbId=${tmdbId}${season ? ` S${season}E${episode || ''}` : ''} providers=[${sourceIds.join(', ')}]`);
 
   for (const [id, pConfig] of enabledProviders) {
     if (sse.cancelled()) return;
     try {
       sse.emit('start', id);
+      logScrape('info', `[${id}] Searching...`);
 
       // Emit realtime progress fill while the scraper works
       let progress = 0;
@@ -449,81 +489,115 @@ app.get('/scrape', async (req, res) => {
           const output = { sourceId: id, stream: mwStream };
           sse.emit('completed', output);
           completedAny = true;
+          logScrape('success', `[${id}] Stream found: ${(mwStream.playlist || mwStream.url || '').slice(0, 120)}`);
           break; // Go to next provider
         }
         if (!foundValid) {
           sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streamable qualities/sources found' });
+        logScrape('warn', `[${id}] No streamable qualities found`);
         }
       } else {
         sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streams returned' });
+        logScrape('warn', `[${id}] No streams returned`);
       }
     } catch (e) {
       sse.emit('update', { id, percentage: 100, status: 'failure', error: e.message });
+      logScrape('error', `[${id}] ${e.message}`);
+    }
+  }
+
+  if (!sse.cancelled()) {
+    sse.emit("done", "");
+    logScrape('info', `Scrape finished. Completed: ${completedAny}`);
+  }
+  res.end();
+});
+
+// GET /scrape/source - SSE endpoint for a single source
+// Supports fallback=true: tries next enabled provider if requested one fails
+app.get('/scrape/source', async (req, res) => {
+  const { id, type, tmdbId, season, episode, seasonNumber, episodeNumber, fallback } = req.query;
+  if (!id || !tmdbId) return res.status(400).json({ error: 'id and tmdbId required' });
+  const sse = sendSSE(req, res);
+  if (sse.cancelled()) return;
+  logScrape('info', `Single-source test: provider=${id} type=${type || 'movie'} tmdbId=${tmdbId}${season ? ` S${season}E${episode || ''}` : ''}${fallback === 'false' ? ' (isolated)' : ' (fallback on)'}`);
+
+  const mediaType = type || 'movie';
+  const sNum = season || seasonNumber || null;
+  const eNum = episode || episodeNumber || null;
+
+  // Build fallback chain: requested provider first, then all enabled in priority order
+  const enabled = getEnabledProvidersSorted();
+  const seen = new Set();
+  const chain = [];
+  if (providers[id]) chain.push([id, config.providers[id]]);
+  seen.add(id);
+  for (const [pid, pcfg] of enabled) {
+    if (!seen.has(pid)) chain.push([pid, pcfg]);
+    seen.add(pid);
+  }
+
+  let completedAny = false;
+
+  for (const [currentId, pConfig] of chain) {
+    if (sse.cancelled()) break;
+    if (completedAny) break;
+    // If not the first provider in the chain, emit a skip notice
+    if (currentId !== id && fallback === 'false') break;
+    if (currentId !== id) {
+      sse.emit('update', { id: currentId, percentage: 5, status: 'pending', note: `fallback from ${id}` });
+    }
+
+    const mod = providers[currentId];
+    if (!mod) continue;
+
+    try {
+      sse.emit('start', currentId);
+
+      let progress = 0;
+      const progressTimer = setInterval(() => {
+        if (sse.cancelled()) { clearInterval(progressTimer); return; }
+        progress = Math.min(progress + 4, 85);
+        sse.emit('update', { id: currentId, percentage: progress, status: 'pending' });
+      }, 400);
+
+      const streams = await mod.getStreams(tmdbId, mediaType, sNum, eNum);
+      clearInterval(progressTimer);
+      if (sse.cancelled()) break;
+
+      const filtered = sortStreamsByQuality(filterStreams(streams || [], currentId));
+
+      if (filtered && filtered.length > 0) {
+        const mwStreams = filtered
+          .map((s, i) => scraperStreamToMwStream(s, currentId + '-' + i))
+          .filter(Boolean);
+        if (mwStreams.length > 0) {
+          sse.emit('update', { id: currentId, percentage: 100, status: 'success' });
+          mwStreams.forEach(s => makeStreamUrlsAbsolute(s, req.headers.host));
+          const output = { embeds: [], stream: mwStreams };
+          sse.emit('completed', output);
+          completedAny = true;
+          logScrape('success', `[${currentId}] ${mwStreams.length} stream(s) found`);
+          break;
+        } else {
+          sse.emit('update', { id: currentId, percentage: 100, status: 'notfound', reason: 'No streamable qualities/sources found' });
+        }
+      } else {
+        sse.emit('update', { id: currentId, percentage: 100, status: 'notfound', reason: 'No streams returned' });
+      }
+    } catch (e) {
+      sse.emit('update', { id: currentId, percentage: 100, status: 'failure', error: e.message });
+      logScrape('error', `[${currentId}] ${e.message}`);
     }
   }
 
   if (!sse.cancelled() && !completedAny) {
     sse.emit('noOutput', '');
   }
-  res.end();
-});
-
-// GET /scrape/source - SSE endpoint for a single source
-app.get('/scrape/source', async (req, res) => {
-  const { id, type, tmdbId, season, episode, seasonNumber, episodeNumber } = req.query;
-  if (!id || !tmdbId) return res.status(400).json({ error: 'id and tmdbId required' });
-  const sse = sendSSE(req, res);
-  if (sse.cancelled()) return;
-
-  const mod = providers[id];
-  if (!mod) {
-    sse.emit('error', { name: 'NotFoundError', message: `Source ${id} not found` });
-    res.end();
-    return;
+  if (!sse.cancelled()) {
+    sse.emit('done', '');
+    logScrape('info', `Single-source test finished. Completed: ${completedAny}`);
   }
-
-  try {
-    sse.emit('start', id);
-
-    // Emit realtime progress fill while the scraper works
-    let progress = 0;
-    const progressTimer = setInterval(() => {
-      if (sse.cancelled()) { clearInterval(progressTimer); return; }
-      progress = Math.min(progress + 4, 85);
-      sse.emit('update', { id, percentage: progress, status: 'pending' });
-    }, 400);
-
-    const mediaType = type || 'movie';
-    const sNum = season || seasonNumber || null;
-    const eNum = episode || episodeNumber || null;
-    const streams = await mod.getStreams(tmdbId, mediaType, sNum, eNum);
-    clearInterval(progressTimer);
-    if (sse.cancelled()) return;
-
-    const filtered = sortStreamsByQuality(filterStreams(streams || [], id));
-
-    if (filtered && filtered.length > 0) {
-      const mwStreams = filtered
-        .map((s, i) => scraperStreamToMwStream(s, id + '-' + i))
-        .filter(Boolean);
-      if (mwStreams.length > 0) {
-        sse.emit('update', { id, percentage: 100, status: 'success' });
-        mwStreams.forEach(s => makeStreamUrlsAbsolute(s, req.headers.host));
-        const output = { embeds: [], stream: mwStreams };
-        sse.emit('completed', output);
-      } else {
-        sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streamable qualities/sources found' });
-        sse.emit('noOutput', '');
-      }
-    } else {
-      sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streams returned' });
-      sse.emit('noOutput', '');
-    }
-  } catch (e) {
-    sse.emit('update', { id, percentage: 100, status: 'failure', error: e.message });
-    sse.emit('noOutput', '');
-  }
-
   res.end();
 });
 

@@ -21,6 +21,8 @@
   <div class="sidebar-nav">
     <button class="nav-btn active" data-view="search" onclick="switchView('search')">🔍 Search</button>
     <button class="nav-btn" data-view="player" onclick="switchView('player')">▶️ Player</button>
+    <button class="nav-btn" data-view="embed" onclick="switchView('embed')">🎬 Embed Debug</button>
+    <button class="nav-btn" data-view="scraper-test" onclick="switchView('scraper-test')">🧪 Scraper Test</button>
     <button class="nav-btn" data-view="providers" onclick="switchView('providers')">⚙️ Providers</button>
     <button class="nav-btn" data-view="filters" onclick="switchView('filters')">🎯 Filters</button>
     <button class="nav-btn" data-view="analytics" onclick="switchView('analytics')">📊 Analytics</button>
@@ -110,6 +112,75 @@
       </div>
           <div id="testLog" class="test-log"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Embed Debug View -->
+  <div id="view-embed" class="view">
+    <div class="view-header">
+      <h2>🎬 Embed Debug</h2>
+      <p>Load the embed player and watch realtime scrape logs.</p>
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+      <input type="text" id="embedTmdbId" placeholder="TMDB ID (e.g. 550)" style="width:140px" value="550">
+      <select id="embedType" style="width:110px">
+        <option value="movie">🎬 Movie</option>
+        <option value="show">📺 TV Show</option>
+      </select>
+      <input type="text" id="embedSeason" placeholder="Season" style="width:80px">
+      <input type="text" id="embedEpisode" placeholder="Episode" style="width:80px">
+      <button onclick="loadEmbed()" style="background:var(--accent,#a359ec);color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer">▶️ Load Embed</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2,#888)"><input type="checkbox" id="embedLiveLogs" checked> Live logs</label>
+      <button onclick="clearEmbedLogs()" style="background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3);padding:8px 14px;border-radius:8px;cursor:pointer">🧹 Clear Logs</button>
+    </div>
+    <div style="display:grid;grid-template-columns:minmax(320px,1fr) minmax(360px,1fr);gap:14px;align-items:start">
+      <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;aspect-ratio:16/10">
+        <iframe id="embedFrame" src="/embed/?tmdbId=550&type=movie" style="width:100%;height:100%;border:none" allowfullscreen></iframe>
+      </div>
+      <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;max-height:480px">
+        <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center">
+          <span>📡 Realtime Scrape Logs</span>
+          <span id="embedLogStatus" style="font-size:11px;color:var(--text2,#888)">connecting...</span>
+        </div>
+        <div id="embedLogPanel" style="flex:1;overflow-y:auto;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.7;min-height:300px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scraper Test View -->
+  <div id="view-scraper-test" class="view">
+    <div class="view-header">
+      <h2>🧪 Isolated Scraper Test</h2>
+      <p>Test a single scraper in isolation, or run it exactly like the embed does.</p>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+      <select id="testProvider" style="width:200px">
+        <option value="">-- Select provider --</option>
+      </select>
+      <select id="testMode" style="width:170px">
+        <option value="isolated">Isolated (no fallback)</option>
+        <option value="embed">Embed mode (all providers)</option>
+      </select>
+      <input type="text" id="testTmdbId" placeholder="TMDB ID" style="width:110px" value="550">
+      <select id="testType" style="width:100px">
+        <option value="movie">🎬 Movie</option>
+        <option value="tv">📺 TV</option>
+      </select>
+      <input type="text" id="testSeason" placeholder="Season" style="width:80px">
+      <input type="text" id="testEpisode" placeholder="Episode" style="width:80px">
+      <button onclick="runScraperTest()" style="background:var(--accent,#a359ec);color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer">▶️ Run Test</button>
+      <button onclick="clearScraperTest()" style="background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3);padding:8px 14px;border-radius:8px;cursor:pointer">🧹 Clear</button>
+      <span id="testStatus" style="font-size:12px;color:var(--text2,#888)"></span>
+    </div>
+    <div style="display:grid;grid-template-columns:minmax(380px,1fr) minmax(380px,1fr);gap:14px;align-items:start">
+      <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;max-height:560px">
+        <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600;font-size:13px">⚡ Live SSE Events</div>
+        <div id="testEventLog" style="flex:1;overflow-y:auto;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.7;min-height:340px"></div>
+      </div>
+      <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;max-height:560px">
+        <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600;font-size:13px">📦 Raw Output (streams JSON)</div>
+        <pre id="testRawOutput" style="flex:1;overflow:auto;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.6;margin:0;min-height:340px;white-space:pre-wrap;word-break:break-all">Run a test to see raw output...</pre>
       </div>
     </div>
   </div>
