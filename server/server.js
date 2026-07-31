@@ -47,6 +47,32 @@ function makeStreamUrlsAbsolute(mwStream, host) {
   }
 }
 
+function maybeProxyStream(mwStream) {
+  if (!mwStream.headers || Object.keys(mwStream.headers).length === 0) return false;
+  const targetUrl = mwStream.playlist || mwStream.url || (mwStream.qualities ? Object.values(mwStream.qualities)[0]?.url : null);
+  if (!targetUrl) return false;
+  const storeId = generateStreamId();
+  streamStore.set(storeId, {
+    ts: Date.now(),
+    url: targetUrl,
+    headers: mwStream.headers,
+    type: mwStream.type === 'hls' ? 'm3u8' : 'mp4',
+  });
+  const proxy = `/proxy?id=${storeId}`;
+  if (mwStream.type === 'hls') {
+    mwStream.playlist = proxy;
+  } else if (mwStream.url) {
+    mwStream.url = proxy;
+  }
+  if (mwStream.qualities) {
+    for (const entry of Object.values(mwStream.qualities)) {
+      if (entry && entry.url) entry.url = proxy;
+    }
+  }
+  mwStream.proxied = true;
+  return true;
+}
+
 // Stream store auto-cleanup every 5 minutes
 const STREAM_TTL = 5 * 60 * 1000;
 setInterval(function() {
@@ -559,6 +585,7 @@ app.get('/scrape', async (req, res) => {
           const pct = Math.round(85 + ((i + 1) / filtered.length) * 15);
           sse.emit('update', { id, percentage: pct, status: 'success' });
           makeStreamUrlsAbsolute(mwStream, req.headers.host);
+          if (req.query.proxy === '1') maybeProxyStream(mwStream);
           const output = { sourceId: id, stream: mwStream };
           sse.emit('completed', output);
           completedAny = true;
@@ -647,6 +674,7 @@ app.get('/scrape/source', async (req, res) => {
         if (mwStreams.length > 0) {
           sse.emit('update', { id: currentId, percentage: 100, status: 'success' });
           mwStreams.forEach(s => makeStreamUrlsAbsolute(s, req.headers.host));
+          if (req.query.proxy === '1') mwStreams.forEach(s => maybeProxyStream(s));
           const output = { embeds: [], stream: mwStreams };
           sse.emit('completed', output);
           completedAny = true;

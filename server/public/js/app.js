@@ -1644,10 +1644,10 @@ function runScraperTest() {
 
   let url;
   if (mode === 'isolated') {
-    url = `/scrape/source?id=${encodeURIComponent(provider)}&tmdbId=${encodeURIComponent(tmdbId)}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}&fallback=false`;
+    url = `/scrape/source?id=${encodeURIComponent(provider)}&tmdbId=${encodeURIComponent(tmdbId)}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}&fallback=false&proxy=1`;
     status.innerText = `Testing ${provider} (isolated)...`;
   } else {
-    url = `/scrape?tmdbId=${encodeURIComponent(tmdbId)}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}`;
+    url = `/scrape?tmdbId=${encodeURIComponent(tmdbId)}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}&proxy=1`;
     status.innerText = 'Running embed-mode scrape...';
   }
 
@@ -1723,6 +1723,7 @@ function addTestStream(stream, sourceId) {
   } else if (stream.url) {
     label = 'mp4';
   }
+  if (stream.proxied) label += ' 🔒 proxied';
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:6px 10px';
   const info = document.createElement('span');
@@ -1759,10 +1760,14 @@ function playTestStream(stream, sourceId) {
   if (!playerUrl) { alert('No playable URL'); return; }
   if (isHlsStream && window.Hls && Hls.isSupported()) {
     const config = {};
-    if (stream.headers && Object.keys(stream.headers).length) {
+    if (!stream.proxied && stream.headers && Object.keys(stream.headers).length) {
+      const forbidden = ['accept-charset', 'accept-encoding', 'access-control-request-headers', 'access-control-request-method', 'connection', 'content-length', 'cookie', 'cookie2', 'date', 'dnt', 'expect', 'host', 'keep-alive', 'origin', 'referer', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'user-agent', 'via'];
       config.xhrSetup = function (xhr) {
         for (const [k, v] of Object.entries(stream.headers)) {
-          try { xhr.setRequestHeader(k, v); } catch (e) {}
+          const kLower = k.toLowerCase();
+          if (!forbidden.includes(kLower) && !kLower.startsWith('proxy-') && !kLower.startsWith('sec-')) {
+            try { xhr.setRequestHeader(k, v); } catch (e) {}
+          }
         }
       };
     }
