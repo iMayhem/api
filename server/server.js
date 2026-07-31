@@ -51,14 +51,11 @@ function maybeProxyStream(mwStream) {
   if (!mwStream.headers || Object.keys(mwStream.headers).length === 0) return false;
   const targetUrl = mwStream.playlist || mwStream.url || (mwStream.qualities ? Object.values(mwStream.qualities)[0]?.url : null);
   if (!targetUrl) return false;
-  const storeId = generateStreamId();
-  streamStore.set(storeId, {
-    ts: Date.now(),
-    url: targetUrl,
-    headers: mwStream.headers,
-    type: mwStream.type === 'hls' ? 'm3u8' : 'mp4',
-  });
-  const proxy = `/proxy?id=${storeId}`;
+  const params = new URLSearchParams({ url: targetUrl });
+  if (mwStream.headers.Referer) params.set('referer', mwStream.headers.Referer);
+  if (mwStream.headers.Origin) params.set('origin', mwStream.headers.Origin);
+  if (mwStream.headers['User-Agent']) params.set('ua', mwStream.headers['User-Agent']);
+  const proxy = `https://cf-header-proxy.moovie.fun/?${params.toString()}`;
   if (mwStream.type === 'hls') {
     mwStream.playlist = proxy;
   } else if (mwStream.url) {
