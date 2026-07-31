@@ -253,14 +253,41 @@ function cleanTech(_0x61bfb5) {
 function cleanLabelText(_0x3baca3) {
   return String(_0x3baca3 || "").replace(/\s+/g, " ").replace(/Download HubDrive/gi, "").replace(/Download HubCloud/gi, "").replace(/Download PixelDrain/gi, "").replace(/Download BuzzServer/gi, "").replace(/4kHDHub\.Com/gi, "").replace(/4kHdHub\.com/gi, "").trim();
 }
+function parseSizeInBytes(sizeStr) {
+  if (!sizeStr) return 0;
+  var str = String(sizeStr).trim().toUpperCase();
+  var match = str.match(/([\d.]+)\s*(GB|MB|KB|B)/i);
+  if (!match) return 0;
+  var val = parseFloat(match[1]);
+  var unit = match[2].toUpperCase();
+  if (unit === 'GB') return val * 1024 * 1024 * 1024;
+  if (unit === 'MB') return val * 1024 * 1024;
+  if (unit === 'KB') return val * 1024;
+  return val;
+}
+
 function buildStream(_0x390e92, _0x33e1d7, _0x25d98f, _0x4428f1, _0x19e302, _0x14a8c3, _0x167db2, _0x222683) {
+  var sizeBytes = parseSizeInBytes(_0x19e302);
+  if (sizeBytes > 2147483648) {
+    return null; // Skip streams > 2GB for streaming
+  }
   var _0x5f3922 = buildMeta(_0x222683, _0x390e92, _0x25d98f, _0x19e302, _0x14a8c3, _0x167db2);
+  var streamHeaders = Object.keys(_0x4428f1 || {}).length ? _0x4428f1 : { Referer: "https://hubcloud.club/" };
+  
+  var params = new URLSearchParams({ url: _0x33e1d7 });
+  if (streamHeaders.Referer) params.set("referer", streamHeaders.Referer);
+  if (streamHeaders.Origin) params.set("origin", streamHeaders.Origin);
+  if (streamHeaders["User-Agent"]) params.set("ua", streamHeaders["User-Agent"]);
+
+  var proxiedUrl = `https://cf-header-proxy.moovie.fun/?${params.toString()}`;
+
   return {
     name: _0x5f3922.name,
     title: _0x5f3922.title,
-    url: _0x33e1d7,
+    url: proxiedUrl,
+    proxyUrl: proxiedUrl,
     quality: _0x25d98f,
-    headers: Object.keys(_0x4428f1 || {}).length ? _0x4428f1 : undefined,
+    headers: streamHeaders,
     behaviorHints: {
       bingeGroup: "4khdhub-" + String(_0x25d98f || "auto").toLowerCase()
     }
@@ -985,7 +1012,7 @@ function resolveHubcloud(_0x3b4cf1, _0x340c10, _0x12ef5b, _0x29f991, _0x3f9c7d, 
         for (var _0xef1143 = 0; _0xef1143 < _0x1164ae.length; _0xef1143++) {
           _0x41381c = _0x41381c.concat(_0x1164ae[_0xef1143] || []);
         }
-        return _0x41381c;
+        return _0x41381c.filter(Boolean);
       });
     });
   }).catch(function () {

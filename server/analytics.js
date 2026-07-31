@@ -57,14 +57,18 @@ function getClientIp(req) {
   return req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(',')[0].trim() : req.ip || req.socket.remoteAddress || 'unknown';
 }
 
-function addEvent(type, sessionId, ip, userAgent, referrer, extra) {
+function addEvent(type, sessionId, ip, userAgent, httpReferrer, extra) {
+  const effectiveRef = (extra && extra.referrer) || (extra && extra.domain) || httpReferrer || '';
+  const domain = getDomainFromReferrer(httpReferrer, extra);
+
   const event = {
     id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     type,
     sessionId,
     ip,
     userAgent,
-    referrer,
+    referrer: effectiveRef,
+    domain: domain,
     time: Date.now(),
     data: extra || {},
   };
@@ -72,10 +76,21 @@ function addEvent(type, sessionId, ip, userAgent, referrer, extra) {
   if (data.events.length > MAX_EVENTS) data.events = data.events.slice(-MAX_EVENTS);
 
   if (!data.sessions[sessionId]) {
-    data.sessions[sessionId] = { firstSeen: Date.now(), lastSeen: Date.now(), ip, userAgent, referrer, pageViews: 0, plays: 0, errors: 0 };
+    data.sessions[sessionId] = { 
+      firstSeen: Date.now(), 
+      lastSeen: Date.now(), 
+      ip, 
+      userAgent, 
+      referrer: effectiveRef, 
+      domain: domain,
+      pageViews: 0, 
+      plays: 0, 
+      errors: 0 
+    };
   }
   const sess = data.sessions[sessionId];
   sess.lastSeen = Date.now();
+  if (domain && domain !== 'Direct / Standalone') sess.domain = domain;
 
   const totals = data.totals;
   switch (type) {
@@ -98,21 +113,74 @@ function addEvent(type, sessionId, ip, userAgent, referrer, extra) {
     case 'audio_change':
       totals.audioChanges++;
       break;
+    case 'ping':
     case 'heartbeat':
       if (extra.duration) totals.watchTimeMs += extra.duration;
       break;
   }
 
-  // Track realtime
-  data.realtimeSessions[sessionId] = { lastPing: Date.now(), ip, userAgent, referrer, currentUrl: extra.currentUrl || '', currentStream: extra.currentStream || '' };
+  // Active stream description for live active users list
+  const activeTitle = extra.title || (extra.tmdbId ? `TMDB ${extra.tmdbId}` : '');
+  let activeStream = extra.currentStream || '';
+  if (!activeStream) {
+    if (extra.isPlaying) {
+      activeStream = `▶ Playing: ${activeTitle || 'Video'}`;
+    } else if (activeTitle) {
+      activeStream = `⏸ ${activeTitle}`;
+    } else {
+      activeStream = 'Watching Embed Player';
+    }
+  }
+
+  // Track realtime session with domain
+  data.realtimeSessions[sessionId] = { 
+    lastPing: Date.now(), 
+    ip, 
+    userAgent, 
+    referrer: effectiveRef, 
+    domain: domain,
+    currentUrl: extra.currentUrl || effectiveRef || '', 
+    currentStream: activeStream,
+    title: activeTitle,
+    isPlaying: !!extra.isPlaying
+  };
 
   broadcast({ type: 'event', event });
   broadcast({ type: 'stats', stats: getStats() });
 }
 
+function getDomainFromReferrer(ref, extra) {
+  let target = '';
+  if (extra && extra.domain && extra.domain !== 'Direct / Standalone') {
+    target = extra.domain;
+  } else if (extra && extra.referrer) {
+    target = extra.referrer;
+  } else if (ref) {
+    target = ref;
+  }
+
+  if (!target) return 'Direct / Standalone';
+
+  try {
+    const raw = target.startsWith('http') ? target : `http://${target}`;
+    const parsed = new URL(raw);
+    const host = parsed.hostname;
+    if (host === 'providers.peestream.in' || host === 'peestream.in' || host === 'proxy.moovie.fun') {
+      if (extra && extra.referrer && !extra.referrer.includes('peestream.in') && !extra.referrer.includes('moovie.fun')) {
+        return new URL(extra.referrer.startsWith('http') ? extra.referrer : `http://${extra.referrer}`).hostname;
+      }
+      return 'Direct / Standalone';
+    }
+    return host || target;
+  } catch (e) {
+    return target;
+  }
+}
+
 function getStats() {
   const now = Date.now();
-  const realtimeCount = Object.keys(data.realtimeSessions).filter(sid => now - data.realtimeSessions[sid].lastPing < REALTIME_TTL).length;
+  const activeSids = Object.keys(data.realtimeSessions).filter(sid => now - data.realtimeSessions[sid].lastPing < REALTIME_TTL);
+  const realtimeCount = activeSids.length;
 
   const events24h = data.events.filter(e => now - e.time < 86400000);
   const plays24h = events24h.filter(e => e.type === 'play').length;
@@ -120,18 +188,49 @@ function getStats() {
 
   // Hourly breakdown for last 24h
   const hourly = {};
+  // Domain breakdown
+  const domainStats = {};
+  // Top Media
+  const mediaStats = {};
+
   for (const e of events24h) {
     const hour = new Date(e.time).toISOString().slice(0, 13) + ':00Z';
     if (!hourly[hour]) hourly[hour] = { pageViews: 0, plays: 0, errors: 0 };
     hourly[hour].pageViews += e.type === 'pageview' ? 1 : 0;
     hourly[hour].plays += e.type === 'play' ? 1 : 0;
     hourly[hour].errors += e.type === 'error' ? 1 : 0;
+
+    const domain = getDomainFromReferrer(e.referrer, e.data);
+    if (!domainStats[domain]) domainStats[domain] = { domain, views: 0, plays: 0, errors: 0, activeNow: 0 };
+    if (e.type === 'pageview') domainStats[domain].views++;
+    if (e.type === 'play') domainStats[domain].plays++;
+    if (e.type === 'error') domainStats[domain].errors++;
+
+    if (e.data && (e.data.title || e.data.tmdbId)) {
+      const mediaKey = e.data.title ? `${e.data.title}${e.data.mediaType ? ' (' + e.data.mediaType + ')' : ''}` : `TMDB: ${e.data.tmdbId}`;
+      if (!mediaStats[mediaKey]) mediaStats[mediaKey] = { title: mediaKey, views: 0, plays: 0 };
+      if (e.type === 'pageview') mediaStats[mediaKey].views++;
+      if (e.type === 'play') mediaStats[mediaKey].plays++;
+    }
   }
+
+  // Count active live sessions per domain
+  for (const sid of activeSids) {
+    const sess = data.realtimeSessions[sid];
+    const domain = getDomainFromReferrer(sess.referrer, sess);
+    if (!domainStats[domain]) domainStats[domain] = { domain, views: 0, plays: 0, errors: 0, activeNow: 0 };
+    domainStats[domain].activeNow++;
+  }
+
+  const topDomains = Object.values(domainStats).sort((a, b) => b.views - a.views);
+  const topMedia = Object.values(mediaStats).sort((a, b) => b.plays - a.plays).slice(0, 15);
 
   return {
     totals: data.totals,
     realtime: { activeNow: realtimeCount, sessions: data.realtimeSessions },
     hourly,
+    topDomains,
+    topMedia,
     last24h: { plays: plays24h, pageViews: views24h },
     eventsCount: data.events.length,
     sessionsCount: Object.keys(data.sessions).length,

@@ -1,5 +1,4 @@
-const API_BASE = "https://401473fc.vidrift.pages.dev";
-const REFERRER = "https://vidrift.pages.dev";
+const BASE = "https://401473fc.vidrift.pages.dev";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 async function getStreams(id, type, season, episode) {
@@ -9,8 +8,8 @@ async function getStreams(id, type, season, episode) {
         : `/api/source/tv/${encodeURIComponent(id)}/${season ?? 1}/${episode ?? 1}`;
 
     try {
-        const res = await fetch(`${API_BASE}${path}`, {
-            headers: { "User-Agent": USER_AGENT, "Referer": `${API_BASE}/` },
+        const res = await fetch(`${BASE}${path}`, {
+            headers: { "User-Agent": USER_AGENT, "Referer": `${BASE}/` },
             signal: AbortSignal.timeout(15000),
         });
         if (!res.ok) return [];
@@ -24,7 +23,7 @@ async function getStreams(id, type, season, episode) {
             const type_ = (s.type ?? "").toLowerCase() === "vtt" || url.toLowerCase().endsWith(".vtt") ? "vtt" : "srt";
             return [{
                 id: `thor-${lang}-${i}`,
-                url: new URL(url, API_BASE).toString(),
+                url: new URL(url, BASE).toString(),
                 language: lang,
                 type: type_,
                 hasCorsRestrictions: false,
@@ -34,19 +33,19 @@ async function getStreams(id, type, season, episode) {
         });
 
         const streams = (data.streams ?? []).flatMap((s, i) => {
-            const url = s.url ?? s.proxyUrl;
+            const url = s.proxyUrl ?? s.url;
             if (!url) return [];
             return [{
                 id: `thor-${s.index ?? i}`,
                 name: "Thor",
                 title: `Thor [S${(s.index ?? i) + 1}] · HLS`,
-                url: new URL(url, API_BASE).toString(),
+                url: new URL(url, BASE).toString(),
                 quality: s.quality || "Auto",
                 type: "hls",
                 captions,
                 headers: {
-                    Referer: `${REFERRER}/`,
-                    Origin: REFERRER,
+                    Referer: `${BASE}/`,
+                    Origin: BASE,
                     "User-Agent": USER_AGENT,
                 },
             }];
