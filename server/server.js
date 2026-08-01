@@ -424,7 +424,7 @@ function scraperStreamToMwStream(stream, sourceId) {
         console.log(`[scraperStreamToMwStream] Skipping non-streamable quality "${q}": ${entry.url.slice(0, 80)}`);
         continue;
       }
-      qualities[q] = { type: entry.type || 'mp4', url: toProxyUrl(entry.url, stream.headers, entry.type) };
+      qualities[q] = { type: entry.type || 'mp4', url: toProxyUrl(entry.url, stream.headers, entry.type), size: entry.size || stream.size || undefined, filename: entry.filename || stream.filename || undefined };
     }
     if (Object.keys(qualities).length === 0) return null; // all qualities filtered
     return {
@@ -457,7 +457,7 @@ function scraperStreamToMwStream(stream, sourceId) {
 
   const quality = stream.quality || 'unknown';
   const qualities = {};
-  qualities[quality] = { type: 'mp4', url: toProxyUrl(stream.url, stream.headers, 'mp4') };
+  qualities[quality] = { type: 'mp4', url: toProxyUrl(stream.url, stream.headers, 'mp4'), size: stream.size || undefined, filename: stream.filename || undefined };
   return {
     type: 'file',
     id: sourceId + '-' + Date.now(),
@@ -619,7 +619,7 @@ app.get('/scrape', async (req, res) => {
       }, 400);
 
       const mod = providers[id];
-      const mediaType = type || 'movie';
+      const mediaType = type === 'show' || type === 'tv' ? 'tv' : (type || 'movie');
       const sNum = season || seasonNumber || null;
       const eNum = episode || episodeNumber || null;
       const streams = await mod.getStreams(tmdbId, mediaType, sNum, eNum);
@@ -675,7 +675,7 @@ app.get('/scrape/source', async (req, res) => {
   if (sse.cancelled()) return;
   logScrape('info', `Single-source test: provider=${id} type=${type || 'movie'} tmdbId=${tmdbId}${season ? ` S${season}E${episode || ''}` : ''}${fallback === 'false' ? ' (isolated)' : ' (fallback on)'}`);
 
-  const mediaType = type || 'movie';
+  const mediaType = type === 'show' || type === 'tv' ? 'tv' : (type || 'movie');
   const sNum = season || seasonNumber || null;
   const eNum = episode || episodeNumber || null;
 

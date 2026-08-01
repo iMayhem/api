@@ -30,36 +30,6 @@
   </script>
   <script src="https://openpanel.dev/op1.js" async defer></script>
   
-  <!-- ProfitOn Ad Tag (Frequency Capped: Max 2 impressions per 5 hours) -->
-  <script>
-    (function() {
-      try {
-        const KEY = 'peestream_ad_impressions';
-        const WINDOW_MS = 5 * 60 * 60 * 1000; // 5 hours
-        const MAX_IMPRESSIONS = 2;
-        const now = Date.now();
-
-        let impressions = JSON.parse(localStorage.getItem(KEY) || '[]');
-        if (!Array.isArray(impressions)) impressions = [];
-
-        // Keep impressions from last 5 hours
-        impressions = impressions.filter(ts => typeof ts === 'number' && (now - ts) < WINDOW_MS);
-
-        if (impressions.length < MAX_IMPRESSIONS) {
-          impressions.push(now);
-          localStorage.setItem(KEY, JSON.stringify(impressions));
-
-          const adScript = document.createElement('script');
-          adScript.setAttribute('data-cfasync', 'false');
-          adScript.async = true;
-          adScript.type = 'text/javascript';
-          adScript.src = '//ae.muggurssalited.com/rxJT26IDtii/vmroB';
-          document.head.appendChild(adScript);
-        }
-      } catch (e) {}
-    })();
-  </script>
-  
   <style>
     :root {
       --bg-color: #07070a;
@@ -1520,7 +1490,7 @@
           
           <div class="doc-card">
             <div class="doc-card-title">TV Shows API</div>
-            <div class="doc-code-block" id="code-tv-tpl">https://peestream.in/embed/?tmdbId={tmdbId}&type=show&season={season}&episode={episode}</div>
+            <div class="doc-code-block" id="code-tv-tpl">https://peestream.in/embed/?tmdbId={tmdbId}&type=tv&season={season}&episode={episode}</div>
             <button class="doc-copy-btn" onclick="copyText('code-tv-tpl')">
               <i class="fa-regular fa-copy"></i> copy url template
             </button>
@@ -1735,7 +1705,7 @@
     
     // Load Dynamic Templates Domain
     document.getElementById('code-movie-tpl').innerText = `${window.location.origin}${window.location.pathname}?tmdbId={tmdbId}&type=movie`;
-    document.getElementById('code-tv-tpl').innerText = `${window.location.origin}${window.location.pathname}?tmdbId={tmdbId}&type=show&season={season}&episode={episode}`;
+    document.getElementById('code-tv-tpl').innerText = `${window.location.origin}${window.location.pathname}?tmdbId={tmdbId}&type=tv&season={season}&episode={episode}`;
 
     // High-Performance Parallel Subtitle Loader & Cache
     const subtitleCache = new Map();
@@ -2102,8 +2072,8 @@
       updateServerMenuUI();
       const next = enabledServers.find(s => s.id !== sourceId && !failedStreamIds.has(s.id) && !targetedScrapes.has(s.id));
       if (next) {
-        clLog('warn', `server ${getFriendlyServerName(sourceId)} unavailable, auto-trying next server ${getFriendlyServerName(next.id)}`);
-        loaderStatus.innerText = `No streams found on ${getFriendlyServerName(sourceId)}. Trying ${getFriendlyServerName(next.id)}...`;
+        clLog('warn', `server ${sourceId} unavailable, auto-trying next server ${next.id}`);
+        loaderStatus.innerText = 'Trying another stream...';
         loadingOverlay.classList.remove('hidden');
         loadingOverlay.style.display = 'flex';
         autoScrapes.add(next.id);
@@ -2134,13 +2104,13 @@
         return;
       }
       if (targetedScrapes.has(sourceId)) return; // already loading this server
-      clLog('info', `${auto ? 'auto' : 'user clicked'} server ${getFriendlyServerName(sourceId)} (${sourceId}), scraping exact server`);
+      clLog('info', `${auto ? 'auto' : 'user clicked'} server ${sourceId}`);
       setServerStatus(sourceId, 'searching');
       renderOverlayServers();
       updateServerMenuUI();
       loadingOverlay.classList.remove('hidden');
       loadingOverlay.style.display = 'flex';
-      loaderStatus.innerText = `Searching ${getFriendlyServerName(sourceId)}...`;
+      loaderStatus.innerText = 'Searching for stream...';
 
       const es = new EventSource(`https://providers.peestream.in/scrape/source?id=${sourceId}&tmdbId=${tmdbId}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}&fallback=false`);
       targetedScrapes.set(sourceId, es);
@@ -2148,26 +2118,37 @@
 
       es.addEventListener('completed', (e) => {
         const data = JSON.parse(e.data);
-        const streamObj = Array.isArray(data.stream) ? data.stream[0] : data.stream;
-        if (!streamObj) return;
-        const existing = resolvedStreams.find(s => s.id === sourceId);
-        if (existing) {
-          existing.stream = streamObj;
-        } else {
-          resolvedStreams.push({ id: sourceId, name: getFriendlyServerName(sourceId), stream: streamObj });
-        }
-        failedStreamIds.delete(sourceId);
+        const streamsArr = Array.isArray(data.stream) ? data.stream : (data.stream ? [data.stream] : []);
+        if (streamsArr.length === 0) return;
+
+        const primaryName = getFriendlyServerName(sourceId);
+        streamsArr.forEach((st, idx) => {
+          const streamId = streamsArr.length > 1 ? `${sourceId}_${idx + 1}` : sourceId;
+          const streamName = streamsArr.length > 1 ? `${primaryName} Link ${idx + 1}` : primaryName;
+          
+          const existingIdx = resolvedStreams.findIndex(s => s.id === streamId);
+          if (existingIdx !== -1) {
+            resolvedStreams[existingIdx].stream = st;
+          } else {
+            resolvedStreams.push({ id: streamId, name: streamName, stream: st });
+          }
+          failedStreamIds.delete(streamId);
+        });
+
+        const firstStreamId = streamsArr.length > 1 ? `${sourceId}_1` : sourceId;
+        const firstStreamObj = streamsArr[0];
+
         setServerStatus(sourceId, 'success');
-        activeServerId = sourceId;
+        activeServerId = firstStreamId;
         loadingOverlay.classList.add('hidden');
         loadingOverlay.style.display = 'none';
-        clLog('success', `server ${sourceId} resolved, loading stream`);
+        clLog('success', `server ${sourceId} resolved ${streamsArr.length} HLS link(s), trying 1st link`);
         if (!subtitlesFetched) fetchSubtitles();
         if (hlsInstance) {
-          hlsInstance.destroy();
+          try { hlsInstance.destroy(); } catch(err) {}
           hlsInstance = null;
         }
-        initPlayer(streamObj);
+        initPlayer(firstStreamObj);
         renderOverlayServers();
         updateServerMenuUI();
       });
@@ -2199,7 +2180,7 @@
           renderOverlayServers();
           updateServerMenuUI();
           if (activeServerId) {
-            loaderStatus.innerText = `No streams found on ${getFriendlyServerName(sourceId)}.`;
+            loaderStatus.innerText = 'No stream found. Trying next...';
             loadingOverlay.classList.remove('hidden');
             loadingOverlay.style.display = 'flex';
             setTimeout(() => {
@@ -2208,7 +2189,7 @@
             }, 2500);
             clLog('warn', `server ${sourceId} has no streams, continuing playback`);
           } else {
-            loaderStatus.innerText = `No streams found on ${getFriendlyServerName(sourceId)}.`;
+            loaderStatus.innerText = 'No stream found. Trying next...';
             loadingOverlay.classList.remove('hidden');
             loadingOverlay.style.display = 'flex';
           }
@@ -2230,11 +2211,11 @@
             return;
           }
           if (!activeServerId) {
-            loaderStatus.innerText = `Connection to ${getFriendlyServerName(sourceId)} server lost. Click a server to retry.`;
+            loaderStatus.innerText = 'Connection lost. Please refresh.';
             loadingOverlay.classList.remove('hidden');
             loadingOverlay.style.display = 'flex';
           } else {
-            loaderStatus.innerText = `Connection to ${getFriendlyServerName(sourceId)} server lost.`;
+            loaderStatus.innerText = 'Connection lost, retrying...';
             loadingOverlay.classList.remove('hidden');
             loadingOverlay.style.display = 'flex';
             setTimeout(() => {
@@ -2246,23 +2227,24 @@
       };
     }
 
-    function switchServer(sourceId) {
+    function switchServer(sourceId, { forcePlay = null } = {}) {
       const item = resolvedStreams.find(s => s.id === sourceId);
       if (!item) return;
       
       activeServerId = sourceId;
       
       if (hlsInstance) {
-        hlsInstance.destroy();
+        try { hlsInstance.destroy(); } catch(e) {}
         hlsInstance = null;
       }
       
       const currentTime = video.currentTime;
-      const isPlaying = !video.paused;
+      // If forcePlay not specified, keep current play state; but on failover always pass true
+      const shouldPlay = forcePlay !== null ? forcePlay : !video.paused;
       
       subtitleOverlay.style.display = 'none';
       
-      initPlayer(item.stream, currentTime, isPlaying);
+      initPlayer(item.stream, currentTime, shouldPlay);
       updateServerMenuUI();
     }
 
@@ -2274,11 +2256,11 @@
         const candidate = resolvedStreams[i];
         if (failedStreamIds.has(candidate.id)) continue;
         failedStreamIds.add(candidate.id);
-        clLog('info', `switching from ${getFriendlyServerName(activeServerId)} to ${getFriendlyServerName(candidate.id)}`);
-        loaderStatus.innerText = `Stream failed on ${getFriendlyServerName(activeServerId)}, switching to ${getFriendlyServerName(candidate.id)}...`;
+        clLog('info', `switching from ${activeServerId} to ${candidate.id}`);
+        loaderStatus.innerText = 'Switching to another stream...';
         loadingOverlay.classList.remove('hidden');
         loadingOverlay.style.display = 'flex';
-        switchServer(candidate.id);
+        switchServer(candidate.id, { forcePlay: true }); // always autoplay on failover
         return true;
       }
       return false;
@@ -2367,34 +2349,58 @@
             };
           }
           
-          hlsInstance = new Hls(hlsConfig);
-          hlsInstance.loadSource(playerUrl);
-          hlsInstance.attachMedia(video);
+          const thisHls = new Hls(hlsConfig);
+          hlsInstance = thisHls;
+          thisHls.loadSource(playerUrl);
+          thisHls.attachMedia(video);
 
-          hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+          thisHls.on(Hls.Events.ERROR, (event, data) => {
+            if (thisHls !== hlsInstance) return; // stale handler from a destroyed instance, ignore
             clLog('error', `HLS error: ${data.type} ${data.details} fatal=${data.fatal}`);
-            if (!data || !data.fatal) return;
-            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-              hlsInstance.startLoad();
-            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-              hlsInstance.recoverMediaError();
+            if (!data) return;
+
+            const isManifestError = data.details === 'manifestLoadError' || data.details === 'manifestParsingError' || data.details === 'levelLoadError' || data.details === 'fragLoadError';
+            if (data.fatal || isManifestError) {
+              clLog('warn', `HLS stream load failure (${data.details}), trying next HLS link candidate...`);
+              failedStreamIds.add(activeServerId);
+              try { thisHls.destroy(); } catch(err) {}
+              if (hlsInstance === thisHls) hlsInstance = null;
+              if (!tryNextServer()) {
+                loadingOverlay.classList.add('hidden');
+                errorOverlay.style.display = 'flex';
+                document.getElementById('error-desc').innerText = 'All stream links failed to play. Please try another server or refresh.';
+              }
+              return;
             }
+
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              thisHls.startLoad();
+            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              thisHls.recoverMediaError();
+            }
+
             setTimeout(() => {
-              if (video.readyState < 2) {
-                clLog('warn', 'playback stalled after HLS error, trying next server');
+              if (thisHls !== hlsInstance) return; // stale, skip
+              if (video.readyState < 2 && !video.paused) {
+                clLog('warn', 'Playback stalled, trying next HLS link candidate...');
+                failedStreamIds.add(activeServerId);
                 if (!tryNextServer()) {
                   loadingOverlay.classList.add('hidden');
                   errorOverlay.style.display = 'flex';
-                  document.getElementById('error-desc').innerText = 'All servers failed to play this stream. Please try again later.';
+                  document.getElementById('error-desc').innerText = 'All stream links failed to play. Please try another server.';
                 }
               }
-            }, 6000);
+            }, 3000);
           });
           
           // Setup HLS Quality Menu dynamically
-          hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-            const levels = hlsInstance.levels;
+          thisHls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (thisHls !== hlsInstance) return; // stale, skip
+            const levels = thisHls.levels;
             clLog('success', `HLS manifest parsed (${levels ? levels.length : 0} qualities)`);
+            // Hide loading overlay — stream is ready (covers case when switching between HLS links)
+            loadingOverlay.classList.add('hidden');
+            loadingOverlay.style.display = 'none';
             
             // Set HLS to play highest quality first
             if (levels && levels.length > 0) {
@@ -2446,7 +2452,48 @@
             
             const shouldPlay = forcePlay !== null ? forcePlay : autoplayParam;
             if (shouldPlay) {
-              video.play().catch(() => bigPlayBtn.classList.add('show'));
+              video.play().catch((err) => {
+                if (err && err.name === 'NotAllowedError') {
+                  // Browser blocked autoplay — silently try muted (always allowed by browsers)
+                  const wasMuted = video.muted;
+                  video.muted = true;
+                  video.play().then(() => {
+                    // Muted play worked — unmute immediately if user hadn't muted it
+                    if (!wasMuted) {
+                      video.muted = false;
+                    }
+                  }).catch(() => {
+                    // Even muted failed — fall back to play button
+                    video.muted = wasMuted;
+                    bigPlayBtn.classList.add('show');
+                  });
+                } else {
+                  // Actual stream error — try next link
+                  clLog('warn', `video.play() failed (${err && err.name}), trying next stream link`);
+                  failedStreamIds.add(activeServerId);
+                  if (!tryNextServer()) {
+                    bigPlayBtn.classList.add('show');
+                  }
+                }
+              });
+
+              // Stall detector: if video hasn't buffered within 6s of manifest, stream is broken — skip to next link.
+              // readyState < 3 works whether or not autoplay was blocked (HLS.js buffers even when paused).
+              const stallTimer = setTimeout(() => {
+                if (thisHls !== hlsInstance) return; // stale, skip
+                if (video.readyState < 3) {
+                  clLog('warn', 'Stream not buffering after manifest, trying next HLS link...');
+                  failedStreamIds.add(activeServerId);
+                  if (!tryNextServer()) {
+                    loadingOverlay.classList.add('hidden');
+                    errorOverlay.style.display = 'flex';
+                    document.getElementById('error-desc').innerText = 'All stream links failed to play. Please try another server.';
+                  }
+                }
+              }, 6000);
+              // Clear stall timer once stream is actually buffered (canplay fires before playing)
+              video.addEventListener('canplay', () => clearTimeout(stallTimer), { once: true });
+              video.addEventListener('playing', () => clearTimeout(stallTimer), { once: true });
             } else {
               video.pause();
               bigPlayBtn.classList.add('show');
@@ -2795,6 +2842,16 @@
       // Video LoadedMetadata
       video.addEventListener('loadedmetadata', () => {
         timeDuration.innerText = formatTime(video.duration);
+      });
+
+      // Always hide loading overlay once video can play or starts playing
+      video.addEventListener('canplay', () => {
+        loadingOverlay.classList.add('hidden');
+        loadingOverlay.style.display = 'none';
+      });
+      video.addEventListener('playing', () => {
+        loadingOverlay.classList.add('hidden');
+        loadingOverlay.style.display = 'none';
       });
 
       // Buffer/Buffered ranges
