@@ -1,6 +1,21 @@
 // Vyla SDK provider — wraps @vyla-entertainment/sdk (ESM) via dynamic import
+const fs = require('fs');
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const HARD_CAP_MS = 15000;
+const CONFIG_PATH = "/root/api/server/providers.json";
+
+function loadSubConfig() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+    const p = cfg.vyla || {};
+    return {
+      disabled: new Set(p.disabledServers || []),
+      order: Array.isArray(p.serverOrder) ? p.serverOrder : [],
+    };
+  } catch (e) {
+    return { disabled: new Set(), order: [] };
+  }
+}
 
 let sdkPromise = null;
 function getSdk() {
@@ -12,6 +27,11 @@ function getSdk() {
   return sdkPromise;
 }
 
+async function getServerList() {
+  const sdk = await getSdk();
+  return sdk.getSources(true).map((s) => ({ key: s.key, label: s.label || s.key }));
+}
+
 function withCap(promise, ms) {
   return Promise.race([
     promise,
@@ -21,7 +41,12 @@ function withCap(promise, ms) {
 
 async function getStreams(tmdbId, type, season, episode) {
   const sdk = await getSdk();
-  const sources = sdk.getSources(true);
+  const { disabled, order } = loadSubConfig();
+  let sources = sdk.getSources(true).filter((s) => !disabled.has(s.key));
+  if (order.length) {
+    const pos = new Map(order.map((k, i) => [k, i]));
+    sources = [...sources].sort((a, b) => (pos.get(a.key) ?? 1e9) - (pos.get(b.key) ?? 1e9));
+  }
   const sNum = season != null && season !== "" ? Number(season) : null;
   const eNum = episode != null && episode !== "" ? Number(episode) : null;
   const seen = new Set();
@@ -62,4 +87,4 @@ async function getStreams(tmdbId, type, season, episode) {
   return streams;
 }
 
-module.exports = { getStreams, name: "Vyla" };
+module.exports = { getStreams, name: "Vyla", getServerList };

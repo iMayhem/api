@@ -1021,26 +1021,56 @@ async function toggleSubServer(providerId, serverName, enable) {
 }
 
 function renderSubServers(container, providerId, p) {
-  const servers = p._discoveredServers || [];
+  const isNamed = Array.isArray(p.sources) && p.sources.length > 0;
+  let servers = isNamed ? [...p.sources] : (p._discoveredServers || []);
   if (!servers.length) {
     container.innerHTML = '<h4>🔌 Sub-Servers</h4><div class="loading" style="padding:8px">No sub-servers discovered. Search with this provider first.</div>';
     return;
   }
+  if (isNamed && p._serverOrder) {
+    servers.sort((a, b) => {
+      const ia = p._serverOrder.indexOf(a.key);
+      const ib = p._serverOrder.indexOf(b.key);
+      return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib);
+    });
+  }
   container.innerHTML = `
     <h4>🔌 Sub-Servers (${servers.length})</h4>
     <div class="sub-server-list">
-      ${servers.map(s => {
-        const disabled = (p.disabledServers || []).includes(s);
+      ${servers.map((s, i) => {
+        const key = isNamed ? s.key : s;
+        const label = isNamed ? (s.label || s.key) : s;
+        const disabled = (p.disabledServers || []).includes(key);
         return `
           <div class="sub-server-item">
+            ${isNamed ? `
+              <button onclick="moveSubServer('${providerId}', '${key.replace(/'/g, "\\'")}', -1)" ${i === 0 ? 'disabled' : ''} style="padding:1px 6px;font-size:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:4px;color:var(--text2);cursor:pointer">▲</button>
+              <button onclick="moveSubServer('${providerId}', '${key.replace(/'/g, "\\'")}', 1)" ${i === servers.length - 1 ? 'disabled' : ''} style="padding:1px 6px;font-size:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:4px;color:var(--text2);cursor:pointer">▼</button>` : ''}
             <label class="toggle small-toggle">
-              <input type="checkbox" ${disabled ? '' : 'checked'} onchange="toggleSubServer('${providerId}', '${s.replace(/'/g, "\\'")}', this.checked)">
+              <input type="checkbox" ${disabled ? '' : 'checked'} onchange="toggleSubServer('${providerId}', '${key.replace(/'/g, "\\'")}', this.checked)">
               <span class="slider"></span>
             </label>
-            <span style="${disabled ? 'text-decoration:line-through;color:var(--text2)' : ''}">${s}</span>
+            <span style="${disabled ? 'text-decoration:line-through;color:var(--text2)' : ''}">${label}</span>
           </div>`;
       }).join('')}
     </div>`;
+}
+
+async function moveSubServer(providerId, key, dir) {
+  const p = providers[providerId];
+  if (!p || !p._serverOrder) return;
+  const idx = p._serverOrder.indexOf(key);
+  const swap = idx + dir;
+  if (idx < 0 || swap < 0 || swap >= p._serverOrder.length) return;
+  const o = [...p._serverOrder];
+  [o[idx], o[swap]] = [o[swap], o[idx]];
+  p._serverOrder = o;
+  await api(`/api/providers/${providerId}/servers`, {
+    method: 'POST',
+    body: JSON.stringify({ disabledServers: p.disabledServers || [], serverOrder: o })
+  });
+  const section = document.querySelector(`.sub-servers[data-provider="${providerId}"]`);
+  if (section) renderSubServers(section, providerId, p);
 }
 
 async function discoverServers(providerId, btn) {
@@ -1164,6 +1194,14 @@ async function loadProvidersView() {
       </div>`;
   }
   container.innerHTML = html;
+  for (const [id, p] of providerOrder) {
+    if (Array.isArray(p.sources) && p.sources.length) {
+      const base = Array.isArray(p.serverOrder) && p.serverOrder.length ? p.serverOrder : p.sources.map(s => s.key);
+      p._serverOrder = base.filter(k => p.sources.some(s => s.key === k));
+      const section = document.querySelector(`.sub-servers[data-provider="${id}"]`);
+      if (section) renderSubServers(section, id, p);
+    }
+  }
   document.getElementById('providerCount').textContent = `${Object.keys(providers).length} providers loaded`;
 }
 

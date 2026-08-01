@@ -110,10 +110,11 @@ function loadConfig() {
           if (typeof p.enabled === 'boolean') cfg.providers[id].enabled = p.enabled;
           if (typeof p.priority === 'number') cfg.providers[id].priority = p.priority;
           if (Array.isArray(p.disabledServers)) cfg.providers[id].disabledServers = p.disabledServers;
+          if (Array.isArray(p.serverOrder)) cfg.providers[id].serverOrder = p.serverOrder;
           if (['auto', 'force', 'off'].includes(p.proxyMode)) cfg.providers[id].proxyMode = p.proxyMode;
         } else {
           // Provider exists in user file but not in defaults — add it
-          cfg.providers[id] = { enabled: p.enabled !== false, priority: p.priority || Object.keys(cfg.providers).length + 1, disabledServers: p.disabledServers || [], proxyMode: p.proxyMode || 'auto' };
+          cfg.providers[id] = { enabled: p.enabled !== false, priority: p.priority || Object.keys(cfg.providers).length + 1, disabledServers: p.disabledServers || [], serverOrder: p.serverOrder || [], proxyMode: p.proxyMode || 'auto' };
         }
       }
     }
@@ -124,7 +125,7 @@ function loadConfig() {
 function saveConfig() {
   const providersOnly = {};
   for (const [id, p] of Object.entries(config.providers || {})) {
-    providersOnly[id] = { enabled: p.enabled, priority: p.priority, disabledServers: p.disabledServers || [], proxyMode: p.proxyMode || 'auto' };
+    providersOnly[id] = { enabled: p.enabled, priority: p.priority, disabledServers: p.disabledServers || [], serverOrder: p.serverOrder || [], proxyMode: p.proxyMode || 'auto' };
   }
   fs.writeFileSync(USER_PROVIDERS_PATH, JSON.stringify(providersOnly, null, 2));
 }
@@ -178,6 +179,13 @@ async function loadProviders() {
           name: mod.name || id,
           supportedTypes: mod.supportedTypes || ['movie', 'tv'],
         };
+        if (typeof mod.getServerList === 'function') {
+          try {
+            providerMeta[id].sources = await mod.getServerList();
+          } catch (e) {
+            console.error(`Failed to get server list for ${id}:`, e.message);
+          }
+        }
       }
     } catch (e) {
       console.error(`Failed to load provider ${id}:`, e);
@@ -811,6 +819,7 @@ app.get('/api/providers', (req, res) => {
       enabled: config.providers[id]?.enabled ?? true,
       priority: config.providers[id]?.priority ?? 999,
       disabledServers: config.providers[id]?.disabledServers || [],
+      serverOrder: config.providers[id]?.serverOrder || [],
       proxyMode: config.providers[id]?.proxyMode || 'auto',
     };
   }
@@ -860,14 +869,15 @@ app.post('/api/providers/:id/priority', (req, res) => {
   res.json({ id, priority });
 });
 
-// Update disabled servers for a provider
+// Update disabled servers / order for a provider
 app.post('/api/providers/:id/servers', (req, res) => {
   const { id } = req.params;
-  const { disabledServers } = req.body;
+  const { disabledServers, serverOrder } = req.body;
   if (!config.providers[id]) return res.status(404).json({ error: 'Provider not found' });
-  config.providers[id].disabledServers = disabledServers || [];
+  if (Array.isArray(disabledServers)) config.providers[id].disabledServers = disabledServers;
+  if (Array.isArray(serverOrder)) config.providers[id].serverOrder = serverOrder;
   saveConfig();
-  res.json({ id, disabledServers: config.providers[id].disabledServers });
+  res.json({ id, disabledServers: config.providers[id].disabledServers || [], serverOrder: config.providers[id].serverOrder || [] });
 });
 
 // Set proxy mode for a provider (auto = proxy ip-locked only, force = always, off = raw)
