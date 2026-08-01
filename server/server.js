@@ -63,11 +63,10 @@ function maybeProxyStream(mwStream, providerId, proxyKind, host) {
     proxy = `${base}/proxy?u=${u}&h=${h}`;
     mwStream.proxyKind = 'vps';
   } else {
-    const params = new URLSearchParams({ url: targetUrl });
-    if (mwStream.headers?.Referer) params.set('referer', mwStream.headers.Referer);
-    if (mwStream.headers?.Origin) params.set('origin', mwStream.headers.Origin);
-    if (mwStream.headers?.['User-Agent']) params.set('ua', mwStream.headers['User-Agent']);
-    proxy = `https://cf-header-proxy.moovie.fun/?${params.toString()}`;
+    const base = host ? `https://${host}` : '';
+    const u = Buffer.from(targetUrl).toString('base64url');
+    const h = Buffer.from(JSON.stringify(mwStream.headers || {})).toString('base64url');
+    proxy = `${base}/proxy?u=${u}&h=${h}`;
     mwStream.proxyKind = 'cloudflare';
   }
   if (mwStream.type === 'hls') {
@@ -677,7 +676,7 @@ app.get('/scrape', async (req, res) => {
           const pct = Math.round(85 + ((i + 1) / filtered.length) * 15);
           sse.emit('update', { id, percentage: pct, status: 'success' });
           makeStreamUrlsAbsolute(mwStream, req.headers.host);
-          if (req.query.proxy && req.query.proxy !== '0' && req.query.proxy !== 'none') maybeProxyStream(mwStream, id, req.query.proxy, req.headers.host);
+          if (req.query.proxy === '0' || req.query.proxy === 'none' || req.query.proxy === 'direct') {} else maybeProxyStream(mwStream, id, req.query.proxy || 'cloudflare', req.headers.host);
           const output = { sourceId: id, stream: mwStream };
           sse.emit('completed', output);
           completedAny = true;
@@ -766,7 +765,7 @@ app.get('/scrape/source', async (req, res) => {
         if (mwStreams.length > 0) {
           sse.emit('update', { id: currentId, percentage: 100, status: 'success' });
           mwStreams.forEach(s => makeStreamUrlsAbsolute(s, req.headers.host));
-          if (req.query.proxy && req.query.proxy !== '0' && req.query.proxy !== 'none') mwStreams.forEach(s => maybeProxyStream(s, currentId, req.query.proxy, req.headers.host));
+          if (req.query.proxy === '0' || req.query.proxy === 'none' || req.query.proxy === 'direct') {} else mwStreams.forEach(s => maybeProxyStream(s, currentId, req.query.proxy || 'cloudflare', req.headers.host));
           const output = { embeds: [], stream: mwStreams };
           sse.emit('completed', output);
           completedAny = true;
