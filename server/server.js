@@ -549,6 +549,47 @@ app.post('/api/scrape/client-log', (req, res) => {
 });
 
 
+// ============ Embed deploy: copy debug embed to production site repo (iMayhem/peestream) ============
+
+app.post('/api/embed/deploy', (req, res) => {
+  if (!isReqAuthenticated(req)) return res.status(401).json({ ok: false, error: "Authentication required" });
+  const { execSync } = require('child_process');
+  try {
+    const deployDir = '/root/api/.embed-deploy';
+    const src = path.join(__dirname, 'public', 'embed', 'index.html');
+    const md5 = crypto.createHash('md5').update(fs.readFileSync(src)).digest('hex');
+    const gitCfg = fs.readFileSync(path.join(__dirname, '..', '.git', 'config'), 'utf8');
+    const tokenMatch = gitCfg.match(/https:\/\/iMayhem:([^@\s]+)@github\.com/);
+    if (!tokenMatch) return res.status(500).json({ ok: false, error: 'no github token in git config' });
+    const repoUrl = `https://iMayhem:${tokenMatch[1]}@github.com/iMayhem/peestream.git`;
+    const run = (cmd) => execSync(cmd, { stdio: 'pipe', timeout: 90000 }).toString();
+    if (!fs.existsSync(path.join(deployDir, '.git'))) {
+      run(`git clone --depth 1 ${repoUrl} ${deployDir}`);
+    } else {
+      run(`git -C ${deployDir} fetch origin --depth 1`);
+      run(`git -C ${deployDir} reset --hard origin/main`);
+    }
+    fs.copyFileSync(src, path.join(deployDir, 'public', 'embed', 'index.html'));
+    run(`git -C ${deployDir} add public/embed/index.html`);
+    let changed = true;
+    try { run(`git -C ${deployDir} diff --cached --quiet`); changed = false; } catch (e) { changed = true; }
+    if (changed) {
+      const commitCmd = `git -C ${deployDir} -c user.name=iMayhem -c user.email=imayhem@users.noreply.github.com commit -m "chore: deploy embed from debug (manual) [${md5.slice(0, 8)}]"`;
+      try {
+        run(commitCmd);
+        run(`git -C ${deployDir} push origin HEAD:main`);
+      } catch (e) {
+        run(`git -C ${deployDir} pull --rebase origin main`);
+        run(`git -C ${deployDir} push origin HEAD:main`);
+      }
+    }
+    res.json({ ok: true, unchanged: !changed, md5 });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err.message || err).slice(0, 300) });
+  }
+});
+
+
 // GET /scrape - SSE endpoint that runs all scrapers (movie-web runAll)
 app.get('/scrape', async (req, res) => {
   const { type, tmdbId, season, episode, seasonNumber, episodeNumber } = req.query;

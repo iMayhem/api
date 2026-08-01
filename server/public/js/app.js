@@ -179,6 +179,32 @@ function clearMyLogs() {
   document.getElementById('myLogsPanel').innerHTML = '';
 }
 
+async function deployEmbed() {
+  const btn = document.getElementById('deployBtn');
+  const status = document.getElementById('deployStatus');
+  btn.disabled = true;
+  status.innerText = 'deploying...';
+  status.style.color = '#f59e0b';
+  try {
+    const r = await fetch('/api/embed/deploy', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    const j = await r.json();
+    if (j.ok) {
+      status.innerText = j.unchanged ? 'already in sync' : `deployed [${(j.md5 || '').slice(0, 8)}]`;
+      status.style.color = '#22c55e';
+    } else {
+      status.innerText = 'failed: ' + (j.error || r.status);
+      status.style.color = '#ef4444';
+    }
+  } catch (e) {
+    status.innerText = 'failed: ' + e.message;
+    status.style.color = '#ef4444';
+  }
+  btn.disabled = false;
+}
+
 function connectMyLogs() {
   if (myLogsSource) { myLogsSource.close(); myLogsSource = null; }
   if (!document.getElementById('myLogsLive').checked) {
