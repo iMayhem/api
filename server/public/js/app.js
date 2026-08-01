@@ -1016,8 +1016,7 @@ async function toggleSubServer(providerId, serverName, enable) {
     method: 'POST',
     body: JSON.stringify({ disabledServers: disabled })
   });
-  const section = document.querySelector(`.sub-servers[data-provider="${providerId}"]`);
-  if (section) renderSubServers(section, providerId, p);
+  document.querySelectorAll(`.sub-servers[data-provider="${providerId}"]`).forEach(section => renderSubServers(section, providerId, p));
 }
 
 function renderSubServers(container, providerId, p) {
@@ -1069,8 +1068,7 @@ async function moveSubServer(providerId, key, dir) {
     method: 'POST',
     body: JSON.stringify({ disabledServers: p.disabledServers || [], serverOrder: o })
   });
-  const section = document.querySelector(`.sub-servers[data-provider="${providerId}"]`);
-  if (section) renderSubServers(section, providerId, p);
+  document.querySelectorAll(`.sub-servers[data-provider="${providerId}"]`).forEach(section => renderSubServers(section, providerId, p));
 }
 
 async function discoverServers(providerId, btn) {
@@ -1734,6 +1732,7 @@ document.addEventListener('keydown', function(e) {
 // ── Scraper Test View ───────────────────────────────────────────────────
 let scraperTestSource = null;
 let testProvidersLoaded = false;
+let testProvidersData = null;
 
 async function initScraperTest() {
   if (testProvidersLoaded) return;
@@ -1741,6 +1740,7 @@ async function initScraperTest() {
   const sel = document.getElementById('testProvider');
   try {
     const provs = await api('/api/providers');
+    testProvidersData = provs;
     const sorted = Object.entries(provs).sort((a, b) => (a[1].priority || 999) - (b[1].priority || 999));
     sorted.forEach(function([id, p]) {
       const opt = document.createElement('option');
@@ -1750,10 +1750,31 @@ async function initScraperTest() {
     });
     const firstEnabled = sorted.find(function([id, p]) { return p.enabled; });
     if (firstEnabled) sel.value = firstEnabled[0];
+    sel.addEventListener('change', renderTestSubServers);
+    renderTestSubServers();
   } catch (e) {
     sel.innerHTML = '<option value="">Failed to load providers</option>';
   }
   initScraperEditor();
+}
+
+function renderTestSubServers() {
+  const sel = document.getElementById('testProvider');
+  const container = document.getElementById('testSubServers');
+  const id = sel.value;
+  const p = testProvidersData ? testProvidersData[id] : null;
+  if (!p || !Array.isArray(p.sources) || !p.sources.length) {
+    container.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+  if (!p._serverOrder) {
+    const base = Array.isArray(p.serverOrder) && p.serverOrder.length ? p.serverOrder : p.sources.map(s => s.key);
+    p._serverOrder = base.filter(k => p.sources.some(s => s.key === k));
+  }
+  container.setAttribute('data-provider', id);
+  container.style.display = 'block';
+  renderSubServers(container, id, p);
 }
 
 function testAppend(event, data) {
