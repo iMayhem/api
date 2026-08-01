@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const net = require('net');
 const { WebSocketServer } = require('ws');
 const cors = require('cors');
 const fs = require('fs');
@@ -279,6 +280,36 @@ function getEnabledProvidersSorted() {
 
 const app = express();
 app.use(cors());
+// Self-hosted sync server (auth, user data, settings, rooms, chat, polls) — mount BEFORE express.json
+// so request bodies stream through untouched to 127.0.0.1:3002.
+// Hub-owned /api routes keep priority; everything else under /api forwards to the sync server.
+const HUB_API_ROUTES = [
+  '/api/auth/login', '/api/auth/check', '/api/auth/logout',
+  '/api/analytics', '/api/embed/deploy', '/api/info', '/api/intro-timestamps',
+  '/api/providers', '/api/resolve-variant', '/api/scrape', '/api/search',
+  '/api/settings', '/api/subtitles', '/api/variants', '/api/scraper-files', '/api/scraper-file',
+];
+app.use('/api', (req, res, next) => {
+  const p = req.originalUrl.split('?')[0];
+  if (HUB_API_ROUTES.some(r => p === r || p.startsWith(r + '/'))) return next();
+  const upstream = http.request(
+    {
+      host: '127.0.0.1',
+      port: 3002,
+      path: req.originalUrl,
+      method: req.method,
+      headers: { ...req.headers, host: '127.0.0.1:3002' },
+    },
+    (upRes) => {
+      res.writeHead(upRes.statusCode, upRes.headers);
+      upRes.pipe(res);
+    }
+  );
+  upstream.on('error', () => {
+    if (!res.headersSent) res.status(502).json({ error: { message: 'sync server unavailable' } });
+  });
+  req.pipe(upstream);
+});
 app.use(express.json());
 
 const ADMIN_USERNAME = process.env.ADMIN_USER || "admin";
@@ -389,7 +420,7 @@ app.post("/api/scraper-file", (req, res) => {
 
 function parseQuality(q) {
   if (!q) return -1;
-  q = q.toLowerCase().replace(/p$/, '');
+  q = String(q).toLowerCase().replace(/p$/, '');
   if (q === 'auto' || q === 'adaptive' || q === 'multi') return -1;
   const n = parseInt(q);
   return isNaN(n) ? -1 : n;
@@ -424,7 +455,7 @@ function scraperStreamToMwStream(stream, sourceId) {
         console.log(`[scraperStreamToMwStream] Skipping non-streamable quality "${q}": ${entry.url.slice(0, 80)}`);
         continue;
       }
-      qualities[q] = { type: entry.type || 'mp4', url: toProxyUrl(entry.url, stream.headers, entry.type), size: entry.size || stream.size || undefined, filename: entry.filename || stream.filename || undefined };
+      qualities[q] = { type: entry.type || 'mp4', url: toProxyUrl(entry.url, stream.headers, entry.type), size: entry.size || stream.size || undefined, filename: entry.filename || stream.filename || undefined, server: entry.server || stream.server || undefined };
     }
     if (Object.keys(qualities).length === 0) return null; // all qualities filtered
     return {
@@ -457,7 +488,7 @@ function scraperStreamToMwStream(stream, sourceId) {
 
   const quality = stream.quality || 'unknown';
   const qualities = {};
-  qualities[quality] = { type: 'mp4', url: toProxyUrl(stream.url, stream.headers, 'mp4'), size: stream.size || undefined, filename: stream.filename || undefined };
+  qualities[quality] = { type: 'mp4', url: toProxyUrl(stream.url, stream.headers, 'mp4'), size: stream.size || undefined, filename: stream.filename || undefined, server: stream.server || undefined };
   return {
     type: 'file',
     id: sourceId + '-' + Date.now(),
@@ -1605,9 +1636,40 @@ async function start() {
 
   const server = http.createServer(app);
 
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  const wss = new WebSocketServer({ noServer: true });
   setupWebSocket(wss);
   console.log('  WebSocket: /ws');
+
+  // Manual upgrade routing: /ws -> legacy watch-together, /sync-ws -> sync server (port 3002).
+  server.on('upgrade', (req, socket, head) => {
+    const url = req.url || '';
+    if (url.startsWith('/ws')) {
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+      return;
+    }
+    if (!url.startsWith('/sync-ws')) {
+      socket.destroy();
+      return;
+    }
+    const up = net.connect(3002, '127.0.0.1', () => {
+      up.write(
+        'GET /ws HTTP/1.1\r\n' +
+        'Host: 127.0.0.1:3002\r\n' +
+        'Upgrade: websocket\r\n' +
+        'Connection: Upgrade\r\n' +
+        `Sec-WebSocket-Key: ${req.headers['sec-websocket-key']}\r\n` +
+        'Sec-WebSocket-Version: 13\r\n\r\n'
+      );
+      if (head && head.length) up.write(head);
+    });
+    up.on('data', (d) => { if (!socket.destroyed) socket.write(d); });
+    up.on('error', () => { if (!socket.destroyed) socket.destroy(); });
+    up.on('close', () => { if (!socket.destroyed) socket.destroy(); });
+    socket.on('data', (d) => { if (!up.destroyed) up.write(d); });
+    socket.on('error', () => { if (!up.destroyed) up.destroy(); });
+    socket.on('close', () => { if (!up.destroyed) up.destroy(); });
+  });
+  console.log('  Sync: /api -> :3002  |  WebSocket: /sync-ws -> :3002');
 
   server.listen(port, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${port}`);
