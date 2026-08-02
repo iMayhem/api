@@ -293,7 +293,7 @@ function extractHubcloudLinks(_0x26e3a7, _0x58e207, _0x3d0c7e, _0x279297) {
   }
   return _0x2b2422;
 }
-function makeStream(_0xd916aa, _0x96e8ff, _0x56c5ea, _0x4bffb3, _0x108932, _0x4095e5, _0xe10dcd) {
+function makeStream(_0xd916aa, _0x96e8ff, _0x56c5ea, _0x4bffb3, _0x108932, _0x4095e5, _0xe10dcd, _0x2fname) {
   var _0x24609e = _0x4bffb3 ? _0x4bffb3.toLowerCase() : "1080p";
   var _0x5f4861 = _0x56c5ea.replace(/ /g, "%20");
   var _0x31652c = String(_0xd916aa || "").replace(/\./g, " ");
@@ -448,7 +448,9 @@ function makeStream(_0xd916aa, _0x96e8ff, _0x56c5ea, _0x4bffb3, _0x108932, _0x40
   var _0xa164b2 = {
     name: _0x8b7a5d,
     title: _0x180ae9,
-    size: _0x180ae9,
+    size: _0xe10dcd || "",
+    filename: _0x2fname || "",
+    server: _0x108932 || "",
     url: _0x5f4861,
     behaviorHints: {
       notWebReady: true,
@@ -470,7 +472,7 @@ function makeStream(_0xd916aa, _0x96e8ff, _0x56c5ea, _0x4bffb3, _0x108932, _0x40
       },
       quality: {
         get: function () {
-          return "\b";
+          return _0xfc3325 || "";
         },
         enumerable: true,
         configurable: true
@@ -503,10 +505,31 @@ function resolveHubCloud(_0x2636ac, _0x3cbc23) {
       if (!_0x2dc6c1) {
         return _0x531b5c;
       }
+      // New flow: hubcloud drive page only shows a "Generate Direct Download Link" button
+      // pointing to a generator (e.g. sportverse.cc/hubcloud.php?...). Extract it.
       let _0x16e91e = null;
-      const _0x389e73 = _0x2dc6c1.match(/href="([^"]+gamerxyt\.com[^"]+)"/i);
-      if (_0x389e73) {
-        _0x16e91e = _0x389e73[1].replace(/&amp;/g, "&");
+      const _0xgen1 = _0x2dc6c1.match(/var\s+url\s*=\s*'([^']+)'/i);
+      if (_0xgen1) {
+        _0x16e91e = _0xgen1[1];
+      }
+      if (!_0x16e91e) {
+        const _0xgen2 = _0x2dc6c1.match(/<a[^>]*id="download"[^>]*href="([^"]+)"/i);
+        if (_0xgen2) {
+          _0x16e91e = _0xgen2[1].replace(/&amp;/g, "&");
+        }
+      }
+      // File size is on the drive page
+      let _0x5d3819 = _0x42fb51 || "";
+      const _0xsize = _0x2dc6c1.match(/id="size"[^>]*>([\d\.]+\s*[MGBtbi]+)</i);
+      if (_0xsize) {
+        _0x5d3819 = _0xsize[1].trim();
+      }
+      // Old flow: direct gamerxyt/x-href links on the drive page
+      if (!_0x16e91e) {
+        const _0x389e73 = _0x2dc6c1.match(/href="([^"]+gamerxyt\.com[^"]+)"/i);
+        if (_0x389e73) {
+          _0x16e91e = _0x389e73[1].replace(/&amp;/g, "&");
+        }
       }
       if (!_0x16e91e) {
         const _0x4cfad2 = _0x2dc6c1.match(/x-href="([^"]+)"/i);
@@ -519,27 +542,40 @@ function resolveHubCloud(_0x2636ac, _0x3cbc23) {
           } catch (_0x942597) {}
         }
       }
-      let _0x13b209 = _0x2dc6c1;
-      if (_0x16e91e) {
-        const _0x1be072 = yield fetchText(_0x16e91e, {
-          headers: getHeaders({
-            Referer: _0x2077ac
-          })
-        });
-        if (_0x1be072) {
-          _0x13b209 = _0x1be072;
-        }
+      if (!_0x16e91e) {
+        return _0x531b5c;
+      }
+      const _0x13b209 = yield fetchText(_0x16e91e, {
+        headers: getHeaders({
+          Referer: _0x2077ac
+        })
+      });
+      if (!_0x13b209) {
+        return _0x531b5c;
+      }
+      // Full file name is in the <title> of both the drive and generator pages
+      let _0x2fname = "";
+      const _0xtitle1 = _0x2dc6c1.match(/<title>([^<]+)/i);
+      if (_0xtitle1) {
+        _0x2fname = _0xtitle1[1].trim();
       }
       const _0x47bdc9 = _0x13b209.match(/<div[^>]*class=['"][^'"]*card-header[^'"]*['"][^>]*>([^<]+)</i);
+      if (!_0x2fname) {
+        const _0xtitle2 = _0x13b209.match(/<title>([^<]+)/i);
+        if (_0xtitle2) {
+          _0x2fname = _0xtitle2[1].trim();
+        }
+      }
       let _0x90e921 = _0x47bdc9 ? _0x47bdc9[1].trim() : _0x3cbc23;
       _0x90e921 = _0x90e921.replace(/\.(mkv|mp4|avi|rar|zip)$/i, "");
-      var _0x5d3819 = _0x42fb51 || "";
-      var _0x1ece6e = _0x13b209.match(/<td[^>]*>\s*File\s*Size\s*:\s*<\/td>\s*<td[^>]*>\s*([\d\.]+\s*[MGBtbi]+)\s*<\/td>/i);
-      if (!_0x1ece6e) {
-        _0x1ece6e = _0x13b209.match(/Size\s*:\s*<\/strong>\s*([\d\.]+\s*[MGBtbi]+)/i);
-      }
-      if (_0x1ece6e) {
-        _0x5d3819 = _0x1ece6e[1].trim();
+      if (!_0x5d3819) {
+        const _0x1ece6e = _0x13b209.match(/<td[^>]*>\s*File\s*Size\s*:\s*<\/td>\s*<td[^>]*>\s*([\d\.]+\s*[MGBtbi]+)\s*<\/td>/i);
+        if (!_0x1ece6e) {
+          _0x1ece6e = _0x13b209.match(/Size\s*:\s*<\/strong>\s*([\d\.]+\s*[MGBtbi]+)/i);
+        }
+        if (_0x1ece6e) {
+          _0x5d3819 = _0x1ece6e[1].trim();
+        }
       }
       const _0x6dc57 = /href="([^"]+)"[^>]*id="([^"]+)"/gi;
       let _0xf79982;
@@ -558,10 +594,38 @@ function resolveHubCloud(_0x2636ac, _0x3cbc23) {
           _0x4351c1 = "Worker";
         }
         if (_0x4351c1) {
-          if (_0x4351c1 === "FSL" && !_0x19fc14.includes("?s=")) {
+          if (_0x4351c1 === "FSL" && !_0x19fc14.includes("r2.cloudflarestorage.com") && !_0x19fc14.includes("?s=")) {
             _0x19fc14 += (_0x19fc14.includes("?") ? "&" : "?") + "s=" + (1 + new Date().getMinutes());
           }
-          _0x531b5c.push(makeStream(_0x90e921, _0x4351c1, _0x19fc14, _0x70c5a2, _0x4351c1, _0x16e91e || _0x2077ac, _0x5d3819));
+          _0x531b5c.push(makeStream(_0x90e921, _0x4351c1, _0x19fc14, _0x70c5a2, _0x4351c1, _0x16e91e || _0x2077ac, _0x5d3819, _0x2fname));
+        }
+      }
+      // 10Gbps server button (gpdl/pixel.hubcloud.cx) on the generator page.
+      // Follow the redirect chain: hubcloud.cx -> worker -> gamerxyt.com/dl.php?link=<direct>
+      const _0x10g = _0x13b209.match(/<a[^>]*(?:class="[^"]*btn-danger[^"]*"[^>]*href="([^"]+)"|href="([^"]+)"[^>]*class="[^"]*btn-danger[^"]*")[^>]*>/i);
+      if (_0x10g) {
+        const _0x10gUrlRaw = (_0x10g[1] || _0x10g[2] || "").replace(/&amp;/g, "&");
+        if (_0x10gUrlRaw && !_0x531b5c.some(_0x5984e0 => _0x5984e0.url === _0x10gUrlRaw)) {
+          let _0x10gUrl = _0x10gUrlRaw;
+          try {
+            let _0xcur = _0x10gUrlRaw;
+            for (let _0xhop = 0; _0xhop < 4; _0xhop++) {
+              const _0xresp = yield fetch(_0xcur, { redirect: "manual" });
+              if (_0xresp.status >= 300 && _0xresp.status < 400 && _0xresp.headers.get("location")) {
+                _0xcur = new URL(_0xresp.headers.get("location"), _0xcur).toString();
+                if (_0xcur.includes("gamerxyt.com/dl.php") || _0xcur.includes("gamerxyt.com/dl.php?")) {
+                  const _0xlink = new URL(_0xcur).searchParams.get("link");
+                  if (_0xlink) {
+                    _0x10gUrl = _0xlink;
+                  }
+                  break;
+                }
+              } else {
+                break;
+              }
+            }
+          } catch (_0xresolvErr) {}
+          _0x531b5c.push(makeStream(_0x90e921, "10Gbps", _0x10gUrl, _0x70c5a2, "10Gbps", _0x16e91e || _0x2077ac, _0x5d3819, _0x2fname));
         }
       }
       const _0x436b83 = /href="(https?:\/\/[^"']*?\.workers\.[a-z]+\/[^"']*)"/gi;
@@ -577,7 +641,7 @@ function resolveHubCloud(_0x2636ac, _0x3cbc23) {
         if (_0x531b5c.some(_0x5984e0 => _0x5984e0.url === _0x2c4766)) {
           continue;
         }
-        _0x531b5c.push(makeStream(_0x90e921, "Worker", _0x2c4766, _0x70c5a2, "Worker", _0x16e91e || _0x2077ac, _0x5d3819));
+        _0x531b5c.push(makeStream(_0x90e921, "Worker", _0x2c4766, _0x70c5a2, "Worker", _0x16e91e || _0x2077ac, _0x5d3819, _0x2fname));
       }
     } catch (_0x270e52) {}
     return _0x531b5c;
@@ -626,8 +690,13 @@ function getStreams(_0x1de68b, _0x530760, _0x9046de, _0x2b16fb) {
         } else {
           _0x279616._srcWeight = 1;
         }
+        var _0xsizeMatch = (_0x279616.size || "").match(/([\d\.]+)\s*(GB|MB|TB)/i);
+        _0x279616._sizeBytes = _0xsizeMatch ? parseFloat(_0xsizeMatch[1]) * (_0xsizeMatch[2].toUpperCase() === "TB" ? 1024 * 1024 * 1024 * 1024 : _0xsizeMatch[2].toUpperCase() === "GB" ? 1024 * 1024 * 1024 : 1024 * 1024) : 0;
       });
       _0x4a7ecf.sort(function (_0x58f555, _0x2bd50b) {
+        if (_0x2bd50b._sizeBytes !== _0x58f555._sizeBytes) {
+          return _0x2bd50b._sizeBytes - _0x58f555._sizeBytes;
+        }
         if (_0x2bd50b._resWeight !== _0x58f555._resWeight) {
           return _0x2bd50b._resWeight - _0x58f555._resWeight;
         }
@@ -636,6 +705,7 @@ function getStreams(_0x1de68b, _0x530760, _0x9046de, _0x2b16fb) {
       _0x4a7ecf.forEach(function (_0x584864) {
         delete _0x584864._resWeight;
         delete _0x584864._srcWeight;
+        delete _0x584864._sizeBytes;
       });
     } catch (_0x1c4186) {
       console.log("[" + PROVIDER_NAME + "] Fatal Error: " + _0x1c4186.message);
