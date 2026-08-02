@@ -278,7 +278,7 @@ async function doSearch() {
 
   const container = document.getElementById('results');
   const status = document.getElementById('statusBar');
-  container.innerHTML = '<div class="loading">Searching all enabled providers...</div>';
+  container.innerHTML = '<div class="loading"><div class="search-spinner"></div><span>Searching all enabled providers...</span></div>';
   status.textContent = 'Searching...';
 
   currentSearchContext = { type, season, episode };
