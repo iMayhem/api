@@ -36,22 +36,21 @@ async function getStreams(id, type, season, episode) {
         const streamUrls = data.data?.stream_urls || [];
         if (!streamUrls.length) return [];
 
-        const results = [];
-        for (const streamUrl of streamUrls) {
+        // Verify all candidate masters in PARALLEL (instead of serially) so the fastest
+        // playable stream is available almost immediately; only the first valid one is used.
+        const settled = await Promise.allSettled(streamUrls.map(async (streamUrl) => {
             try {
                 const headers = { Referer: CDN_ORIGIN + "/", Origin: CDN_ORIGIN, "User-Agent": USER_AGENT };
                 const proxyUrl = SV_PROXY + "?u=" + encodeURIComponent(streamUrl) + "&h=" + encodeURIComponent(JSON.stringify(headers));
 
-                // Verify the proxied master is valid and discover quality range
                 const mRes = await fetch(proxyUrl, {
                     headers: { "User-Agent": USER_AGENT },
-                    signal: AbortSignal.timeout(10000),
+                    signal: AbortSignal.timeout(6000),
                 });
                 if (!mRes.ok) throw new Error("proxy status " + mRes.status);
                 const body = await mRes.text();
                 if (!body.includes("#EXT")) throw new Error("not a playlist");
 
-                // Pick the highest quality for the label
                 const lines = body.split("\n");
                 let bestQuality = "Auto";
                 for (let i = 0; i < lines.length; i++) {
@@ -60,29 +59,38 @@ async function getStreams(id, type, season, episode) {
                     }
                 }
 
-                // Return the proxied MASTER playlist URL
-                // HLS.js will detect all quality levels and offer switching
-                results.push({
+                return {
                     name: "Poseidon",
                     title: "Poseidon · HLS",
                     url: proxyUrl,
                     quality: bestQuality,
                     headers: { "User-Agent": USER_AGENT },
-                });
+                };
             } catch (e) {
-                results.push({
+                return {
                     name: "Poseidon",
                     title: "Poseidon · HLS",
                     url: streamUrl,
                     quality: "Auto",
                     headers: { Referer: CDN_ORIGIN + "/", Origin: CDN_ORIGIN, "User-Agent": USER_AGENT },
-                });
+                };
             }
-        }
+        }));
+
+        const results = settled
+            .filter(r => r.status === "fulfilled" && r.value && r.value.url)
+            .map(r => r.value)
+            .sort((a, b) => (rankOf(a.quality) - rankOf(b.quality)));
         return results;
     } catch (e) {
         return [];
     }
+}
+
+function rankOf(q) {
+    const order = ["4K", "2160p", "1080p", "720p", "480p", "360p", "Auto", "SD"];
+    const i = order.indexOf(q);
+    return i === -1 ? order.length : i;
 }
 
 module.exports = { getStreams, name: "Poseidon", supportedTypes: ["movie", "tv"] };
