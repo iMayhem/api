@@ -259,7 +259,7 @@ function extractStreamServers(streams) {
   return [...servers].sort();
 }
 
-const NON_STREAMABLE_EXTS = /\.(zip|rar|7z|tar|gz|mkv|avi|mov|wmv|flv|iso|torrent)(\?|$)/i;
+const NON_STREAMABLE_EXTS = /\.(zip|rar|7z|tar|gz|avi|mov|wmv|flv|iso|torrent)(\?|$)/i;
 
 function isStreamableUrl(url) {
   if (!url) return false;
