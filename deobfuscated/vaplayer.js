@@ -68,19 +68,22 @@ async function getStreams(id, type, season, episode) {
         };
 
         const verifiedHeaders = { Referer: CDN_ORIGIN + "/", Origin: CDN_ORIGIN, "User-Agent": USER_AGENT };
+        const bestEffort = (streamUrl) => SV_PROXY + "?u=" + encodeURIComponent(streamUrl) + "&h=" + encodeURIComponent(JSON.stringify(verifiedHeaders));
         let results = [];
         try {
             const first = await Promise.any(streamUrls.map(u => verifyOne(u, verifiedHeaders).then(({ proxyUrl, body }) => ({ proxyUrl, body }))));
             results.push(mkResult(first.proxyUrl, first.body, ""));
         } catch (e) {
-            // All verifications failed/timed out: fall back to the raw stream URL so the
-            // player proxy can still attempt playback.
-            results = streamUrls.map(streamUrl => ({
+            // All verifications failed/timed out. NEVER send the raw tokenized stream URLs
+            // to the player - those pl/ links 403/404 outside the proxying CDN. Send
+            // best-effort proxied masters instead (fast, loose timeout) so playback still
+            // goes through the proxy host the CDN actually serves from.
+            results = streamUrls.slice(0, 3).map(streamUrl => ({
                 name: "Poseidon",
                 title: "Poseidon · HLS",
-                url: streamUrl,
+                url: bestEffort(streamUrl),
                 quality: "Auto",
-                headers: { Referer: CDN_ORIGIN + "/", Origin: CDN_ORIGIN, "User-Agent": USER_AGENT },
+                headers: { "User-Agent": USER_AGENT },
             }));
         }
         return results;
