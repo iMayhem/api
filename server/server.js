@@ -277,6 +277,63 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 
+// ============ Client Log Storage ============
+const clientLogs = [];
+const clientLogSseClients = new Set();
+
+function writeClientLogSse(res, entry) {
+  try { res.write(`data: ${JSON.stringify(entry)}\n\n`); } catch (e) { clientLogSseClients.delete(res); }
+}
+
+app.post('/api/scrape/client-log', (req, res) => {
+  try {
+    const { type, message, tmdbId, sid } = req.body || {};
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      type: type || 'info',
+      message: message || '',
+      tmdbId: tmdbId || null,
+      sid: sid || null
+    };
+    clientLogs.push(logEntry);
+    if (clientLogs.length > 1000) clientLogs.shift();
+    for (const client of clientLogSseClients) writeClientLogSse(client, { ...logEntry, source: 'client', time: logEntry.timestamp });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/scrape/client-log', (req, res) => {
+  const { sid, tmdbId, limit = 100 } = req.query;
+  let filtered = clientLogs;
+  if (sid) filtered = filtered.filter(l => l.sid === sid);
+  if (tmdbId) filtered = filtered.filter(l => String(l.tmdbId) === String(tmdbId));
+  res.json(filtered.slice(-parseInt(limit)));
+});
+
+// SSE feed consumed by the Embed Debug dashboard panels.
+app.get('/api/scrape/log', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.write(': connected\n\n');
+  // This feed is intentionally live-only. Replaying the global buffer here
+  // makes the dashboard look like the current player is failing repeatedly
+  // when the entries actually belong to older sessions and other TMDB IDs.
+  clientLogSseClients.add(res);
+  const pingTimer = setInterval(() => {
+    try { res.write(': ping\n\n'); } catch (e) { clearInterval(pingTimer); clientLogSseClients.delete(res); }
+  }, 25000);
+  req.on('close', () => {
+    clearInterval(pingTimer);
+    clientLogSseClients.delete(res);
+  });
+});
+
 // ============ movie-web SSE Provider API (before static to ensure priority) ============
 
 function parseQuality(q) {
@@ -524,6 +581,10 @@ app.get('/scrape/source', async (req, res) => {
     sse.emit('noOutput', '');
   }
 
+  // Tell EventSource clients that the scrape ended normally before closing
+  // the connection. Without this, the browser reports a reconnect/error even
+  // after a successful completed event.
+  if (!sse.cancelled()) sse.emit('done', '');
   res.end();
 });
 
