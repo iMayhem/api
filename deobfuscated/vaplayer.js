@@ -36,51 +36,53 @@ async function getStreams(id, type, season, episode) {
         const streamUrls = data.data?.stream_urls || [];
         if (!streamUrls.length) return [];
 
-        // Verify all candidate masters in PARALLEL (instead of serially) so the fastest
-        // playable stream is available almost immediately; only the first valid one is used.
-        const settled = await Promise.allSettled(streamUrls.map(async (streamUrl) => {
-            try {
-                const headers = { Referer: CDN_ORIGIN + "/", Origin: CDN_ORIGIN, "User-Agent": USER_AGENT };
-                const proxyUrl = SV_PROXY + "?u=" + encodeURIComponent(streamUrl) + "&h=" + encodeURIComponent(JSON.stringify(headers));
+        // Verify all candidate masters in PARALLEL (instead of serially). Wait only for the
+        // FIRST verified master (Promise.any) so a single flaky CDN can no longer stall playback.
+        const verifyOne = async (streamUrl, headers) => {
+            const proxyUrl = SV_PROXY + "?u=" + encodeURIComponent(streamUrl) + "&h=" + encodeURIComponent(JSON.stringify(headers));
+            const mRes = await fetch(proxyUrl, {
+                headers: { "User-Agent": USER_AGENT },
+                signal: AbortSignal.timeout(4000),
+            });
+            if (!mRes.ok) throw new Error("proxy status " + mRes.status);
+            const body = await mRes.text();
+            if (!body.includes("#EXT")) throw new Error("not a playlist");
+            return { proxyUrl, body };
+        };
 
-                const mRes = await fetch(proxyUrl, {
-                    headers: { "User-Agent": USER_AGENT },
-                    signal: AbortSignal.timeout(6000),
-                });
-                if (!mRes.ok) throw new Error("proxy status " + mRes.status);
-                const body = await mRes.text();
-                if (!body.includes("#EXT")) throw new Error("not a playlist");
-
-                const lines = body.split("\n");
-                let bestQuality = "Auto";
-                for (let i = 0; i < lines.length; i++) {
-                    if (lines[i].includes("EXT-X-STREAM-INF")) {
-                        bestQuality = parseResolution(lines[i]);
-                    }
+        const mkResult = (proxyUrl, body, streamUrl) => {
+            const lines = body.split("\n");
+            let bestQuality = "Auto";
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].includes("EXT-X-STREAM-INF")) {
+                    bestQuality = parseResolution(lines[i]);
                 }
-
-                return {
-                    name: "Poseidon",
-                    title: "Poseidon · HLS",
-                    url: proxyUrl,
-                    quality: bestQuality,
-                    headers: { "User-Agent": USER_AGENT },
-                };
-            } catch (e) {
-                return {
-                    name: "Poseidon",
-                    title: "Poseidon · HLS",
-                    url: streamUrl,
-                    quality: "Auto",
-                    headers: { Referer: CDN_ORIGIN + "/", Origin: CDN_ORIGIN, "User-Agent": USER_AGENT },
-                };
             }
-        }));
+            return {
+                name: "Poseidon",
+                title: "Poseidon · HLS",
+                url: proxyUrl,
+                quality: bestQuality,
+                headers: { "User-Agent": USER_AGENT },
+            };
+        };
 
-        const results = settled
-            .filter(r => r.status === "fulfilled" && r.value && r.value.url)
-            .map(r => r.value)
-            .sort((a, b) => (rankOf(a.quality) - rankOf(b.quality)));
+        const verifiedHeaders = { Referer: CDN_ORIGIN + "/", Origin: CDN_ORIGIN, "User-Agent": USER_AGENT };
+        let results = [];
+        try {
+            const first = await Promise.any(streamUrls.map(u => verifyOne(u, verifiedHeaders).then(({ proxyUrl, body }) => ({ proxyUrl, body }))));
+            results.push(mkResult(first.proxyUrl, first.body, ""));
+        } catch (e) {
+            // All verifications failed/timed out: fall back to the raw stream URL so the
+            // player proxy can still attempt playback.
+            results = streamUrls.map(streamUrl => ({
+                name: "Poseidon",
+                title: "Poseidon · HLS",
+                url: streamUrl,
+                quality: "Auto",
+                headers: { Referer: CDN_ORIGIN + "/", Origin: CDN_ORIGIN, "User-Agent": USER_AGENT },
+            }));
+        }
         return results;
     } catch (e) {
         return [];
