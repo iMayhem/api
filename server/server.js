@@ -1095,6 +1095,12 @@ app.get('/api/search/stream', async (req, res) => {
           }
           const proxyUrl = toProxyUrl(stream.url, stream.headers, stream.type);
           if (proxyUrl !== stream.url) stream.proxyUrl = proxyUrl;
+          // Honor the provider's proxyMode (auto/force/off) so mp4s/files proxy like in /scrape
+          const pm = config.providers[id]?.proxyMode || 'auto';
+          if (pm !== 'off' && (pm === 'force' || (stream.headers && Object.keys(stream.headers).length > 0))) {
+            const base = req.headers.host ? `https://${req.headers.host}` : '';
+            stream.proxyUrl = `${base}/proxy?u=${Buffer.from(stream.url).toString('base64url')}&h=${Buffer.from(JSON.stringify(stream.headers || {})).toString('base64url')}`;
+          }
           emit('stream', { provider: id, name, quality: stream.quality || 'Auto', url: stream.url, proxyUrl: stream.proxyUrl || '', type: stream.type, title: stream.title || '' });
         }
         emit('provider-done', { provider: id, name, count: filtered.length, servers: extractStreamServers(filtered) });
