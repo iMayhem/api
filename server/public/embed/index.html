@@ -1389,6 +1389,29 @@
     .retry-btn:hover {
       background: var(--accent-hover);
     }
+
+    #debug-console {
+      position: fixed;
+      z-index: 50;
+      left: 10px;
+      right: 10px;
+      bottom: 10px;
+      max-height: 180px;
+      overflow-y: auto;
+      padding: 8px 10px;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 8px;
+      background: rgba(8, 10, 16, .92);
+      color: #d8dee9;
+      font: 11px/1.45 monospace;
+      text-align: left;
+      pointer-events: none;
+      white-space: pre-wrap;
+    }
+    .debug-log-line { margin: 2px 0; }
+    .debug-log-line.log-error { color: #ff7676; }
+    .debug-log-line.log-warn { color: #ffd166; }
+    .debug-log-line.log-success { color: #72e6a8; }
   </style>
 </head>
 <body>
@@ -1657,7 +1680,6 @@
           <div class="spinner-pulse"></div>
         </div>
         <div id="loader-status" class="status-text" style="margin-top: 15px; font-weight: 500; font-size: 0.95rem;">Searching Poseidon...</div>
-        <div id="loader-hint" class="status-text" style="margin-top: 6px; font-weight: 400; font-size: 0.82rem; color: var(--text-dim);"></div>
         <div id="overlay-server-list" style="display: none;"></div>
       </div>
       
@@ -1670,6 +1692,8 @@
           <button onclick="window.location.reload()" class="retry-btn">Retry</button>
         </div>
       </div>
+
+      <div id="debug-console" style="display: none;"></div>
       
       <!-- Embed Code Drawer -->
       <div id="embed-drawer" class="embed-drawer">
@@ -1710,10 +1734,12 @@
     // URL Params parsing
     const urlParams = new URLSearchParams(window.location.search);
     const tmdbId = urlParams.get('tmdbId');
-    const type = urlParams.get('type') || 'movie';
+    const rawType = urlParams.get('type') || 'movie';
+    const type = ['show', 'series'].includes(rawType.toLowerCase()) ? 'tv' : rawType;
     const season = urlParams.get('season');
     const episode = urlParams.get('episode');
     const title = urlParams.get('title') || 'Media Stream';
+    const debugEnabled = ['1', 'true', 'yes'].includes((urlParams.get('debug') || '').toLowerCase());
     
     // Page Elements
     const landingView = document.getElementById('landing-view');
@@ -1731,7 +1757,8 @@
     if (tmdbId) {
       landingView.style.display = 'none';
       playerView.style.display = 'block';
-      loadActivatedServers();
+      // loadActivatedServers depends on helpers declared later in this script.
+      window.addEventListener('DOMContentLoaded', () => loadActivatedServers(), { once: true });
     } else {
       landingView.style.display = 'flex';
       playerView.style.display = 'none';
@@ -1832,52 +1859,15 @@
     const errorOverlay = document.getElementById('error-overlay');
     const errorDesc = document.getElementById('error-desc');
     const loaderStatus = document.getElementById('loader-status');
-    const hideLoadingOverlay = () => {
-      stopLoaderHints();
+const hideLoadingOverlay = () => {
       loadingOverlay.classList.add('hidden');
       loadingOverlay.style.display = 'none';
     };
-    // Endless reassuring hints shown while the loader is up and the server
-    // still takes time to pull the video from the origin.
-    const loaderHints = [
-      'just a sec...',
-      'grabbing a good source...',
-      'fetching from the server...',
-      'warming up the stream...',
-      'almost there...',
-      'buffering the video...',
-      'one moment please...',
-      'connecting to the CDN...',
-      'loading your video...',
-      'still here, hang tight...'
-    ];
-    let loaderHintIdx = 0;
-    let loaderHintTimer = null;
-    const loaderHintEl = document.getElementById('loader-hint');
-    const startLoaderHints = () => {
-      if (!loaderHintEl) return;
-      stopLoaderHints();
-      loaderHintIdx = 0;
-      loaderHintEl.textContent = loaderHints[0];
-      loaderHintTimer = setInterval(() => {
-        loaderHintIdx = (loaderHintIdx + 1) % loaderHints.length;
-        loaderHintEl.textContent = loaderHints[loaderHintIdx];
-      }, 2500);
-    };
-    const stopLoaderHints = () => {
-      if (loaderHintTimer) {
-        clearInterval(loaderHintTimer);
-        loaderHintTimer = null;
-      }
-      if (loaderHintEl) loaderHintEl.textContent = '';
-    };
-    const hideErrorOverlay = () => {
-      errorOverlay.style.display = 'none';
-      if (errorDesc) errorDesc.innerText = '';
-    };
     // Failure banner removed — never show the "All stream links failed" notice.
     const showStreamFailure = () => {
+      hideLoadingOverlay();
       hideErrorOverlay();
+      if (loaderStatus) loaderStatus.innerText = 'Poseidon could not start this stream. Please refresh.';
     };
     
     const embedTrigger = document.getElementById('embed-trigger');
@@ -1983,18 +1973,47 @@
     let targetedScrapes = new Map(); // providerId -> EventSource (per-server click loads)
     let autoScrapes = new Set();     // providerIds loaded automatically (auto-failover chain)
 
+    window.embedLogs = window.embedLogs || [];
+    const clientLogThrottle = new Map();
+
     function clLog(type, message) {
       try {
+        let sid = sessionStorage.getItem('peestream_sid');
+        if (!sid) {
+          sid = 'sid_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+          sessionStorage.setItem('peestream_sid', sid);
+        }
+        const timeStr = new Date().toLocaleTimeString();
+        const throttleKey = `${type}|${message}`;
+        const now = Date.now();
+        const previous = clientLogThrottle.get(throttleKey) || 0;
+        if (type === 'error' && message.startsWith('HLS error:') && now - previous < 2500) return;
+        clientLogThrottle.set(throttleKey, now);
+        const entry = { time: timeStr, type, message, tmdbId };
+        window.embedLogs.push(entry);
+        console.log(`[EMBED ${type.toUpperCase()}] ${timeStr} - ${message}`);
+
+        const debugConsole = document.getElementById('debug-console');
+        if (debugConsole) {
+          debugConsole.style.display = debugEnabled ? 'block' : 'none';
+          if (debugEnabled) {
+            const logLine = document.createElement('div');
+            logLine.className = `debug-log-line log-${type}`;
+            logLine.innerText = `[${timeStr}] [${type.toUpperCase()}] ${message}`;
+            debugConsole.appendChild(logLine);
+            debugConsole.scrollTop = debugConsole.scrollHeight;
+          }
+        }
+
         fetch('https://providers.peestream.in/api/scrape/client-log', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type, message, tmdbId, sid: sessionStorage.getItem('peestream_sid') })
+          body: JSON.stringify({ type, message, tmdbId, sid })
         }).catch(() => {});
       } catch (e) {}
     }
 
     function loadActivatedServers() {
-      startLoaderHints();
       fetch(`https://providers.peestream.in/api/providers`)
         .then(r => r.json())
         .then(data => {
@@ -2176,7 +2195,6 @@
       loadingOverlay.classList.remove('hidden');
       loadingOverlay.style.display = 'flex';
       loaderStatus.innerText = 'Searching for stream...';
-      startLoaderHints();
 
       const es = new EventSource(`https://providers.peestream.in/scrape/source?id=${sourceId}&tmdbId=${tmdbId}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}&fallback=false`);
       targetedScrapes.set(sourceId, es);
@@ -2230,6 +2248,9 @@
           updateServerMenuUI();
         } else if (data.status === 'pending') {
           setServerStatus(sid, 'searching');
+          if (typeof data.percentage === 'number' && data.percentage > 0) {
+            loaderStatus.innerText = `Searching for stream... ${data.percentage}%`;
+          }
         }
       });
 
@@ -2392,11 +2413,21 @@
         if (Hls.isSupported()) {
           const hlsConfig = {
             enableWorker: true,
-            maxBufferLength: 45,        // buffer up to 45s ahead
-            maxMaxBufferLength: 90,     // cap max buffer length at 90s
-            maxBufferSize: 60 * 1024 * 1024, // 60MB max buffer size
+            // Keep startup light; grow the buffer after playback begins.
+            maxBufferLength: 18,
+            maxMaxBufferLength: 45,
+            maxBufferSize: 32 * 1024 * 1024,
             maxStarvationDelay: 2,
-            progressive: true
+            progressive: true,
+            startFragPrefetch: true,
+            capLevelToPlayerSize: true,
+            startLevel: 0,
+            manifestLoadingMaxRetry: 1,
+            manifestLoadingRetryDelay: 400,
+            levelLoadingMaxRetry: 1,
+            levelLoadingRetryDelay: 400,
+            fragLoadingMaxRetry: 1,
+            fragLoadingRetryDelay: 400
           };
           if (stream.headers && Object.keys(stream.headers).length > 0) {
             hlsConfig.xhrSetup = function (xhr, targetUrl) {
@@ -2418,25 +2449,48 @@
           
           const thisHls = new Hls(hlsConfig);
           hlsInstance = thisHls;
+          let fragParseErrors = 0;
+          let fragErrorWindowStarted = Date.now();
+          let playbackWatchdog = null;
+
+          const failThisHls = (reason) => {
+            clLog('warn', `HLS stream load failure (${reason}), trying next HLS link candidate...`);
+            failedStreamIds.add(activeServerId);
+            try { thisHls.destroy(); } catch(err) {}
+            if (hlsInstance === thisHls) hlsInstance = null;
+            if (!tryNextServer()) showStreamFailure();
+          };
+
           thisHls.loadSource(playerUrl);
           thisHls.attachMedia(video);
 
           thisHls.on(Hls.Events.ERROR, (event, data) => {
             if (thisHls !== hlsInstance) return; // stale handler from a destroyed instance, ignore
-            clLog('error', `HLS error: ${data.type} ${data.details} fatal=${data.fatal}`);
             if (!data) return;
+            // fragParsingError is a noisy recoverable diagnostic on Poseidon.
+            // Keep recovery/fallback logic, but do not flood realtime logs with it.
+            if (data.fatal || data.details !== 'fragParsingError') {
+              clLog('error', `HLS error: ${data.type} ${data.details} fatal=${data.fatal}`);
+            }
 
             const isManifestError = data.details === 'manifestLoadError' || data.details === 'manifestParsingError' || data.details === 'levelLoadError' || data.details === 'fragLoadError';
             if (data.fatal || isManifestError) {
-              clLog('warn', `HLS stream load failure (${data.details}), trying next HLS link candidate...`);
-              failedStreamIds.add(activeServerId);
-              try { thisHls.destroy(); } catch(err) {}
-              if (hlsInstance === thisHls) hlsInstance = null;
-              if (!tryNextServer()) {
-                showStreamFailure();
-                document.getElementById('error-desc').innerText = 'All stream links failed to play. Please try another server or refresh.';
-              }
+              failThisHls(data.details);
               return;
+            }
+
+            // Some Poseidon manifests repeatedly return malformed fragments as
+            // recoverable media errors. Do not leave the loader spinning forever.
+            if (data.details === 'fragParsingError') {
+              if (Date.now() - fragErrorWindowStarted > 10000) {
+                fragParseErrors = 0;
+                fragErrorWindowStarted = Date.now();
+              }
+              fragParseErrors += 1;
+              if (fragParseErrors >= 3) {
+                failThisHls('repeated fragParsingError');
+                return;
+              }
             }
 
             if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
@@ -2454,18 +2508,11 @@
             // Note: keep the loading overlay visible until ACTUAL playback (playing event).
             // Hiding here leaves a blank gap while the first segments buffer from the CDN.
             
-            // Set HLS to play highest quality first
+            // Start on the smallest rendition for fast first-frame playback.
+            // HLS.js can switch upward once the stream is stable.
             if (levels && levels.length > 0) {
-              let maxLevelIndex = 0;
-              let maxAttr = 0;
-              levels.forEach((lvl, idx) => {
-                const val = lvl.height || lvl.bitrate || 0;
-                if (val > maxAttr) {
-                  maxAttr = val;
-                  maxLevelIndex = idx;
-                }
-              });
-              hlsInstance.nextLevel = maxLevelIndex;
+              hlsInstance.startLevel = 0;
+              hlsInstance.nextLevel = 0;
             }
 
             if (levels && levels.length > 1) {
@@ -2543,10 +2590,18 @@
           const shouldPlay = forcePlay !== null ? forcePlay : autoplayParam;
           if (shouldPlay) {
             video.play().catch(() => { hideLoadingOverlay(); bigPlayBtn.classList.add('show'); });
+            playbackWatchdog = setTimeout(() => {
+              if (thisHls !== hlsInstance || !video.paused || video.readyState >= 3) return;
+              failThisHls('playback timeout');
+            }, 15000);
           } else {
             video.pause();
             bigPlayBtn.classList.add('show');
           }
+
+          video.addEventListener('playing', () => {
+            if (playbackWatchdog) clearTimeout(playbackWatchdog);
+          }, { once: true });
 
           const onNativeError = () => {
             setTimeout(() => {
@@ -2787,7 +2842,7 @@
           }
         }
       }
-      return cues;
+      return cues.sort((a, b) => a.start - b.start);
     }
 
     function parseTimestampMatch(h, m, s, ms) {
@@ -2869,8 +2924,21 @@
 
         // Render current subtitles cue
         if (subtitleCues.length > 0) {
-          const adjustedTime = curr + subtitleDelay;
-          const activeCue = subtitleCues.find(cue => adjustedTime >= cue.start && adjustedTime <= cue.end);
+          const t = curr + subtitleDelay;
+          // Binary search: rightmost cue whose start <= t. This is the active
+          // line — correctly handles overlapping cues (latest start wins) and
+          // the cue boundary (end is exclusive, so the next line shows instantly).
+          let lo = 0, hi = subtitleCues.length - 1, idx = -1;
+          while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (subtitleCues[mid].start <= t) {
+              idx = mid;
+              lo = mid + 1;
+            } else {
+              hi = mid - 1;
+            }
+          }
+          const activeCue = (idx !== -1 && t < subtitleCues[idx].end) ? subtitleCues[idx] : null;
           if (activeCue) {
             subtitleOverlay.style.display = 'block';
             subtitleOverlay.innerHTML = activeCue.text;
@@ -2891,7 +2959,6 @@
 
       // Hide loading overlay only once video ACTUALLY starts playing.
       video.addEventListener('playing', () => {
-        stopLoaderHints();
         loadingOverlay.classList.add('hidden');
         loadingOverlay.style.display = 'none';
       });
