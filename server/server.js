@@ -1,6 +1,5 @@
 const express = require('express');
 const http = require('http');
-const net = require('net');
 const { WebSocketServer } = require('ws');
 const cors = require('cors');
 const fs = require('fs');
@@ -48,45 +47,6 @@ function makeStreamUrlsAbsolute(mwStream, host) {
   }
 }
 
-function maybeProxyStream(mwStream, providerId, proxyKind, host, explicitProxy) {
-  const mode = config.providers[providerId]?.proxyMode || 'auto';
-  const hasHeaders = mwStream.headers && Object.keys(mwStream.headers).length > 0;
-  // An explicit proxy request (e.g. scraper test '1'/'vps') overrides the provider's
-  // proxyMode (off/auto). When no proxy param is sent (embed), honor proxyMode.
-  if (!explicitProxy) {
-    if (mode === 'off') return false;
-    if (mode === 'auto' && !hasHeaders) return false;
-  }
-  const targetUrl = mwStream.playlist || mwStream.url || (mwStream.qualities ? Object.values(mwStream.qualities)[0]?.url : null);
-  if (!targetUrl) return false;
-  let proxy;
-  if (proxyKind === 'vps' || proxyKind === '2') {
-    const base = host ? `https://${host}` : '';
-    const u = Buffer.from(targetUrl).toString('base64url');
-    const h = Buffer.from(JSON.stringify(mwStream.headers || {})).toString('base64url');
-    proxy = `${base}/proxy?u=${u}&h=${h}`;
-    mwStream.proxyKind = 'vps';
-  } else {
-    const base = host ? `https://${host}` : '';
-    const u = Buffer.from(targetUrl).toString('base64url');
-    const h = Buffer.from(JSON.stringify(mwStream.headers || {})).toString('base64url');
-    proxy = `${base}/proxy?u=${u}&h=${h}`;
-    mwStream.proxyKind = 'cloudflare';
-  }
-  if (mwStream.type === 'hls') {
-    mwStream.playlist = proxy;
-  } else if (mwStream.url) {
-    mwStream.url = proxy;
-  }
-  if (mwStream.qualities) {
-    for (const entry of Object.values(mwStream.qualities)) {
-      if (entry && entry.url) entry.url = proxy;
-    }
-  }
-  mwStream.proxied = true;
-  return true;
-}
-
 // Stream store auto-cleanup every 5 minutes
 const STREAM_TTL = 5 * 60 * 1000;
 setInterval(function() {
@@ -113,11 +73,9 @@ function loadConfig() {
           if (typeof p.enabled === 'boolean') cfg.providers[id].enabled = p.enabled;
           if (typeof p.priority === 'number') cfg.providers[id].priority = p.priority;
           if (Array.isArray(p.disabledServers)) cfg.providers[id].disabledServers = p.disabledServers;
-          if (Array.isArray(p.serverOrder)) cfg.providers[id].serverOrder = p.serverOrder;
-          if (['auto', 'force', 'off'].includes(p.proxyMode)) cfg.providers[id].proxyMode = p.proxyMode;
         } else {
           // Provider exists in user file but not in defaults — add it
-          cfg.providers[id] = { enabled: p.enabled !== false, priority: p.priority || Object.keys(cfg.providers).length + 1, disabledServers: p.disabledServers || [], serverOrder: p.serverOrder || [], proxyMode: p.proxyMode || 'auto' };
+          cfg.providers[id] = { enabled: p.enabled !== false, priority: typeof p.priority === 'number' ? p.priority : Object.keys(cfg.providers).length + 1, disabledServers: p.disabledServers || [] };
         }
       }
     }
@@ -128,7 +86,7 @@ function loadConfig() {
 function saveConfig() {
   const providersOnly = {};
   for (const [id, p] of Object.entries(config.providers || {})) {
-    providersOnly[id] = { enabled: p.enabled, priority: p.priority, disabledServers: p.disabledServers || [], serverOrder: p.serverOrder || [], proxyMode: p.proxyMode || 'auto' };
+    providersOnly[id] = { enabled: p.enabled, priority: p.priority, disabledServers: p.disabledServers || [] };
   }
   fs.writeFileSync(USER_PROVIDERS_PATH, JSON.stringify(providersOnly, null, 2));
 }
@@ -182,13 +140,6 @@ async function loadProviders() {
           name: mod.name || id,
           supportedTypes: mod.supportedTypes || ['movie', 'tv'],
         };
-        if (typeof mod.getServerList === 'function') {
-          try {
-            providerMeta[id].sources = await mod.getServerList();
-          } catch (e) {
-            console.error(`Failed to get server list for ${id}:`, e.message);
-          }
-        }
       }
     } catch (e) {
       console.error(`Failed to load provider ${id}:`, e);
@@ -263,7 +214,7 @@ function extractStreamServers(streams) {
   return [...servers].sort();
 }
 
-const NON_STREAMABLE_EXTS = /\.(zip|rar|7z|tar|gz|avi|mov|wmv|flv|iso|torrent)(\?|$)/i;
+const NON_STREAMABLE_EXTS = /\.(zip|rar|7z|tar|gz|mkv|avi|mov|wmv|flv|iso|torrent)(\?|$)/i;
 
 function isStreamableUrl(url) {
   if (!url) return false;
@@ -291,147 +242,103 @@ function getEnabledProvidersSorted() {
 
 const app = express();
 app.use(cors());
-// Self-hosted sync server (auth, user data, settings, rooms, chat, polls) — mount BEFORE express.json
-// so request bodies stream through untouched to 127.0.0.1:3002.
-// Hub-owned /api routes keep priority; everything else under /api forwards to the sync server.
-const HUB_API_ROUTES = [
-  '/api/auth/login', '/api/auth/check', '/api/auth/logout',
-  '/api/analytics', '/api/embed/deploy', '/api/info', '/api/intro-timestamps',
-  '/api/providers', '/api/resolve-variant', '/api/scrape', '/api/search',
-  '/api/settings', '/api/subtitles', '/api/variants', '/api/scraper-files', '/api/scraper-file',
-];
-app.use('/api', (req, res, next) => {
-  const p = req.originalUrl.split('?')[0];
-  if (HUB_API_ROUTES.some(r => p === r || p.startsWith(r + '/'))) return next();
-  const upstream = http.request(
-    {
-      host: '127.0.0.1',
-      port: 3002,
-      path: req.originalUrl,
-      method: req.method,
-      headers: { ...req.headers, host: '127.0.0.1:3002' },
-    },
-    (upRes) => {
-      res.writeHead(upRes.statusCode, upRes.headers);
-      upRes.pipe(res);
-    }
-  );
-  upstream.on('error', () => {
-    if (!res.headersSent) res.status(502).json({ error: { message: 'sync server unavailable' } });
-  });
-  req.pipe(upstream);
-});
 app.use(express.json());
 
-const ADMIN_USERNAME = process.env.ADMIN_USER || "admin";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "peestream2026";
+// ============ Authentication & Locked Panel ============
+const ADMIN_USERNAME = process.env.ADMIN_USER || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'peestream2026';
 const authSessions = new Set();
 
 function isReqAuthenticated(req) {
-  const authHeader = req.headers["authorization"];
-  const token = (authHeader && authHeader.startsWith("Bearer ")) ? authHeader.slice(7) : req.headers["x-admin-token"];
+  const authHeader = req.headers['authorization'];
+  const token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7) : (req.headers['x-admin-token'] || req.query.token);
   return token && authSessions.has(token);
 }
 
-app.post("/api/auth/login", (req, res) => {
+app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body || {};
   if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-    const token = crypto.randomBytes(32).toString("hex");
+    const token = crypto.randomBytes(32).toString('hex');
     authSessions.add(token);
     return res.json({ success: true, token });
   }
-  return res.status(401).json({ success: false, error: "Invalid username or password" });
+  return res.status(401).json({ success: false, error: 'Invalid username or password' });
 });
 
-app.get("/api/auth/check", (req, res) => {
+app.get('/api/auth/check', (req, res) => {
   res.json({ authenticated: Boolean(isReqAuthenticated(req)) });
 });
 
-app.post("/api/auth/logout", (req, res) => {
-  const authHeader = req.headers["authorization"];
-  const token = (authHeader && authHeader.startsWith("Bearer ")) ? authHeader.slice(7) : req.headers["x-admin-token"];
+app.post('/api/auth/logout', (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7) : req.headers['x-admin-token'];
   if (token) authSessions.delete(token);
   res.json({ success: true });
 });
 
-// ============ Scraper file viewer/editor (auth-protected) ============
 
-const SCRAPER_FILE_RE = /^[a-zA-Z0-9._-]+\.js$/;
+// ============ Client Log Storage ============
+const clientLogs = [];
+const clientLogSseClients = new Set();
 
-function resolveScraperFile(name) {
-  if (!SCRAPER_FILE_RE.test(name)) return null;
-  const filePath = path.resolve(PROVIDERS_DIR, name);
-  if (!filePath.startsWith(PROVIDERS_DIR + path.sep)) return null;
-  return filePath;
+function writeClientLogSse(res, entry) {
+  try { res.write(`data: ${JSON.stringify(entry)}\n\n`); } catch (e) { clientLogSseClients.delete(res); }
 }
 
-app.get("/api/scraper-files", (req, res) => {
-  if (!isReqAuthenticated(req)) return res.status(401).json({ success: false, error: "Authentication required" });
+app.post('/api/scrape/client-log', (req, res) => {
   try {
-    const files = fs.readdirSync(PROVIDERS_DIR)
-      .filter(f => f.endsWith('.js'))
-      .map(f => {
-        const stat = fs.statSync(path.join(PROVIDERS_DIR, f));
-        return { name: f, size: stat.size, mtime: stat.mtimeMs };
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-    res.json({ success: true, files });
+    const { type, message, tmdbId, sid } = req.body || {};
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      type: type || 'info',
+      message: message || '',
+      tmdbId: tmdbId || null,
+      sid: sid || null
+    };
+    clientLogs.push(logEntry);
+    if (clientLogs.length > 1000) clientLogs.shift();
+    for (const client of clientLogSseClients) writeClientLogSse(client, { ...logEntry, source: 'client', time: logEntry.timestamp });
+    res.json({ success: true });
   } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ error: e.message });
   }
 });
 
-app.get("/api/scraper-file", (req, res) => {
-  if (!isReqAuthenticated(req)) return res.status(401).json({ success: false, error: "Authentication required" });
-  const filePath = resolveScraperFile(String(req.query.name || '').trim());
-  if (!filePath) return res.status(400).json({ success: false, error: "Invalid file name" });
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    const stat = fs.statSync(filePath);
-    res.json({ success: true, name: path.basename(filePath), size: stat.size, mtime: stat.mtimeMs, content });
-  } catch (e) {
-    res.status(404).json({ success: false, error: e.message });
-  }
+app.get('/api/scrape/client-log', (req, res) => {
+  const { sid, tmdbId, limit = 100 } = req.query;
+  let filtered = clientLogs;
+  if (sid) filtered = filtered.filter(l => l.sid === sid);
+  if (tmdbId) filtered = filtered.filter(l => String(l.tmdbId) === String(tmdbId));
+  res.json(filtered.slice(-parseInt(limit)));
 });
 
-app.post("/api/scraper-file", (req, res) => {
-  if (!isReqAuthenticated(req)) return res.status(401).json({ success: false, error: "Authentication required" });
-  const name = String(req.body.name || '').trim();
-  const content = typeof req.body.content === 'string' ? req.body.content : '';
-  const filePath = resolveScraperFile(name);
-  if (!filePath) return res.status(400).json({ success: false, error: "Invalid file name" });
-  try {
-    const prev = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : null;
-    fs.writeFileSync(filePath, content, 'utf8');
-    const id = path.basename(name, '.js');
-    try {
-      delete require.cache[require.resolve(filePath)];
-      const mod = require(filePath);
-      if (mod && typeof mod.getStreams === 'function') {
-        providers[id] = mod;
-        providerMeta[id] = {
-          name: mod.name || id,
-          supportedTypes: mod.supportedTypes || ['movie', 'tv'],
-        };
-        logScrape('success', `[editor] Saved & reloaded ${name}`);
-        return res.json({ success: true, reloaded: true });
-      }
-      throw new Error('Module does not export getStreams()');
-    } catch (e) {
-      if (prev !== null) fs.writeFileSync(filePath, prev, 'utf8');
-      logScrape('error', `[editor] Reload failed for ${name}, reverted: ${e.message}`);
-      return res.status(400).json({ success: false, error: 'Saved to disk but reload failed — file reverted. ' + e.message });
-    }
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
+// SSE feed consumed by the Embed Debug dashboard panels.
+app.get('/api/scrape/log', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.write(': connected\n\n');
+  // This feed is intentionally live-only. Replaying the global buffer here
+  // makes the dashboard look like the current player is failing repeatedly
+  // when the entries actually belong to older sessions and other TMDB IDs.
+  clientLogSseClients.add(res);
+  const pingTimer = setInterval(() => {
+    try { res.write(': ping\n\n'); } catch (e) { clearInterval(pingTimer); clientLogSseClients.delete(res); }
+  }, 25000);
+  req.on('close', () => {
+    clearInterval(pingTimer);
+    clientLogSseClients.delete(res);
+  });
 });
 
 // ============ movie-web SSE Provider API (before static to ensure priority) ============
 
 function parseQuality(q) {
   if (!q) return -1;
-  q = String(q).toLowerCase().replace(/p$/, '');
+  q = q.toLowerCase().replace(/p$/, '');
   if (q === 'auto' || q === 'adaptive' || q === 'multi') return -1;
   const n = parseInt(q);
   return isNaN(n) ? -1 : n;
@@ -466,7 +373,7 @@ function scraperStreamToMwStream(stream, sourceId) {
         console.log(`[scraperStreamToMwStream] Skipping non-streamable quality "${q}": ${entry.url.slice(0, 80)}`);
         continue;
       }
-      qualities[q] = { type: entry.type || 'mp4', url: toProxyUrl(entry.url, stream.headers, entry.type), size: entry.size || stream.size || undefined, filename: entry.filename || stream.filename || undefined, server: entry.server || stream.server || undefined };
+      qualities[q] = { type: entry.type || 'mp4', url: toProxyUrl(entry.url, stream.headers, entry.type) };
     }
     if (Object.keys(qualities).length === 0) return null; // all qualities filtered
     return {
@@ -499,7 +406,7 @@ function scraperStreamToMwStream(stream, sourceId) {
 
   const quality = stream.quality || 'unknown';
   const qualities = {};
-  qualities[quality] = { type: 'mp4', url: toProxyUrl(stream.url, stream.headers, 'mp4'), size: stream.size || undefined, filename: stream.filename || undefined, server: stream.server || undefined };
+  qualities[quality] = { type: 'mp4', url: toProxyUrl(stream.url, stream.headers, 'mp4') };
   return {
     type: 'file',
     id: sourceId + '-' + Date.now(),
@@ -550,88 +457,6 @@ function sendSSE(req, res) {
   return { emit, cancelled: () => cancelled };
 }
 
-// ============ Scrape Log Broadcast (for dashboard realtime logs) ============
-const scrapeLogClients = new Set();
-
-function broadcastScrapeLog(entry) {
-  const payload = `data: ${JSON.stringify(entry)}\n\n`;
-  for (const client of scrapeLogClients) {
-    try { client.write(payload); } catch (e) { scrapeLogClients.delete(client); }
-  }
-}
-
-app.get('/api/scrape/log', (req, res) => {
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
-  });
-  res.flushHeaders();
-  res.write(`data: ${JSON.stringify({ time: Date.now(), type: 'info', message: 'Log stream connected' })}\n\n`);
-  scrapeLogClients.add(res);
-  req.on('close', () => scrapeLogClients.delete(res));
-});
-
-function logScrape(type, message, extra) {
-  broadcastScrapeLog({ time: Date.now(), type, message, ...(extra || {}) });
-}
-
-// Client-side embed logs (embed POSTs its own debug events here)
-app.post('/api/scrape/client-log', (req, res) => {
-  const { type, message, tmdbId, sid } = req.body || {};
-  broadcastScrapeLog({
-    time: Date.now(),
-    type: type || 'info',
-    message: `[client${tmdbId ? `:${tmdbId}` : ''}] ${message || ''}`,
-    source: 'client',
-    sid: sid || null
-  });
-  res.json({ ok: true });
-});
-
-
-// ============ Embed deploy: copy debug embed to production site repo (iMayhem/peestream) ============
-
-app.post('/api/embed/deploy', (req, res) => {
-  if (!isReqAuthenticated(req)) return res.status(401).json({ ok: false, error: "Authentication required" });
-  const { execSync } = require('child_process');
-  try {
-    const deployDir = '/root/api/.embed-deploy';
-    const src = path.join(__dirname, 'public', 'embed', 'index.html');
-    const md5 = crypto.createHash('md5').update(fs.readFileSync(src)).digest('hex');
-    const gitCfg = fs.readFileSync(path.join(__dirname, '..', '.git', 'config'), 'utf8');
-    const tokenMatch = gitCfg.match(/https:\/\/iMayhem:([^@\s]+)@github\.com/);
-    if (!tokenMatch) return res.status(500).json({ ok: false, error: 'no github token in git config' });
-    const repoUrl = `https://iMayhem:${tokenMatch[1]}@github.com/iMayhem/peestream.git`;
-    const run = (cmd) => execSync(cmd, { stdio: 'pipe', timeout: 90000 }).toString();
-    if (!fs.existsSync(path.join(deployDir, '.git'))) {
-      run(`git clone --depth 1 ${repoUrl} ${deployDir}`);
-    } else {
-      run(`git -C ${deployDir} fetch origin --depth 1`);
-      run(`git -C ${deployDir} reset --hard origin/main`);
-    }
-    fs.copyFileSync(src, path.join(deployDir, 'public', 'embed', 'index.html'));
-    run(`git -C ${deployDir} add public/embed/index.html`);
-    let changed = true;
-    try { run(`git -C ${deployDir} diff --cached --quiet`); changed = false; } catch (e) { changed = true; }
-    if (changed) {
-      const commitCmd = `git -C ${deployDir} -c user.name=iMayhem -c user.email=imayhem@users.noreply.github.com commit -m "chore: deploy embed from debug (manual) [${md5.slice(0, 8)}]"`;
-      try {
-        run(commitCmd);
-        run(`git -C ${deployDir} push origin HEAD:main`);
-      } catch (e) {
-        run(`git -C ${deployDir} pull --rebase origin main`);
-        run(`git -C ${deployDir} push origin HEAD:main`);
-      }
-    }
-    res.json({ ok: true, unchanged: !changed, md5 });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: String(err.message || err).slice(0, 300) });
-  }
-});
-
-
 // GET /scrape - SSE endpoint that runs all scrapers (movie-web runAll)
 app.get('/scrape', async (req, res) => {
   const { type, tmdbId, season, episode, seasonNumber, episodeNumber } = req.query;
@@ -644,13 +469,11 @@ app.get('/scrape', async (req, res) => {
 
   let completedAny = false;
   sse.emit('init', { sourceIds });
-  logScrape('info', `Scrape started: type=${type || 'movie'} tmdbId=${tmdbId}${season ? ` S${season}E${episode || ''}` : ''} providers=[${sourceIds.join(', ')}]`);
 
   for (const [id, pConfig] of enabledProviders) {
     if (sse.cancelled()) return;
     try {
       sse.emit('start', id);
-      logScrape('info', `[${id}] Searching...`);
 
       // Emit realtime progress fill while the scraper works
       let progress = 0;
@@ -661,7 +484,7 @@ app.get('/scrape', async (req, res) => {
       }, 400);
 
       const mod = providers[id];
-      const mediaType = type === 'show' || type === 'tv' ? 'tv' : (type || 'movie');
+      const mediaType = ['show', 'series'].includes(String(type || '').toLowerCase()) ? 'tv' : (type || 'movie');
       const sNum = season || seasonNumber || null;
       const eNum = episode || episodeNumber || null;
       const streams = await mod.getStreams(tmdbId, mediaType, sNum, eNum);
@@ -680,120 +503,88 @@ app.get('/scrape', async (req, res) => {
           const pct = Math.round(85 + ((i + 1) / filtered.length) * 15);
           sse.emit('update', { id, percentage: pct, status: 'success' });
           makeStreamUrlsAbsolute(mwStream, req.headers.host);
-          const proxyParam = req.query.proxy; if (proxyParam === '0' || proxyParam === 'none' || proxyParam === 'direct') { } else { maybeProxyStream(mwStream, id, proxyParam || 'cloudflare', req.headers.host, !!proxyParam); }
           const output = { sourceId: id, stream: mwStream };
           sse.emit('completed', output);
           completedAny = true;
-          logScrape('success', `[${id}] Stream found: ${(mwStream.playlist || mwStream.url || '').slice(0, 120)}`);
           break; // Go to next provider
         }
         if (!foundValid) {
           sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streamable qualities/sources found' });
-        logScrape('warn', `[${id}] No streamable qualities found`);
         }
       } else {
         sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streams returned' });
-        logScrape('warn', `[${id}] No streams returned`);
       }
     } catch (e) {
       sse.emit('update', { id, percentage: 100, status: 'failure', error: e.message });
-      logScrape('error', `[${id}] ${e.message}`);
-    }
-  }
-
-  if (!sse.cancelled()) {
-    sse.emit("done", "");
-    logScrape('info', `Scrape finished. Completed: ${completedAny}`);
-  }
-  res.end();
-});
-
-// GET /scrape/source - SSE endpoint for a single source
-// Supports fallback=true: tries next enabled provider if requested one fails
-app.get('/scrape/source', async (req, res) => {
-  const { id, type, tmdbId, season, episode, seasonNumber, episodeNumber, fallback } = req.query;
-  if (!id || !tmdbId) return res.status(400).json({ error: 'id and tmdbId required' });
-  const sse = sendSSE(req, res);
-  if (sse.cancelled()) return;
-  logScrape('info', `Single-source test: provider=${id} type=${type || 'movie'} tmdbId=${tmdbId}${season ? ` S${season}E${episode || ''}` : ''}${fallback === 'false' ? ' (isolated)' : ' (fallback on)'}`);
-
-  const mediaType = type === 'show' || type === 'tv' ? 'tv' : (type || 'movie');
-  const sNum = season || seasonNumber || null;
-  const eNum = episode || episodeNumber || null;
-
-  // Build fallback chain: requested provider first, then all enabled in priority order
-  const enabled = getEnabledProvidersSorted();
-  const seen = new Set();
-  const chain = [];
-  if (providers[id]) chain.push([id, config.providers[id]]);
-  seen.add(id);
-  for (const [pid, pcfg] of enabled) {
-    if (!seen.has(pid)) chain.push([pid, pcfg]);
-    seen.add(pid);
-  }
-
-  let completedAny = false;
-
-  for (const [currentId, pConfig] of chain) {
-    if (sse.cancelled()) break;
-    if (completedAny) break;
-    // If not the first provider in the chain, emit a skip notice
-    if (currentId !== id && fallback === 'false') break;
-    if (currentId !== id) {
-      sse.emit('update', { id: currentId, percentage: 5, status: 'pending', note: `fallback from ${id}` });
-    }
-
-    const mod = providers[currentId];
-    if (!mod) continue;
-
-    try {
-      sse.emit('start', currentId);
-
-      let progress = 0;
-      const progressTimer = setInterval(() => {
-        if (sse.cancelled()) { clearInterval(progressTimer); return; }
-        progress = Math.min(progress + 4, 85);
-        sse.emit('update', { id: currentId, percentage: progress, status: 'pending' });
-      }, 400);
-
-      const streams = await mod.getStreams(tmdbId, mediaType, sNum, eNum);
-      clearInterval(progressTimer);
-      if (sse.cancelled()) break;
-
-      const filtered = sortStreamsByQuality(filterStreams(streams || [], currentId));
-
-      if (filtered && filtered.length > 0) {
-        const mwStreams = filtered
-          .map((s, i) => scraperStreamToMwStream(s, currentId + '-' + i))
-          .filter(Boolean);
-        if (mwStreams.length > 0) {
-          sse.emit('update', { id: currentId, percentage: 100, status: 'success' });
-          mwStreams.forEach(s => makeStreamUrlsAbsolute(s, req.headers.host));
-          const explicitProxyP = req.query.proxy; if (explicitProxyP === '0' || explicitProxyP === 'none' || explicitProxyP === 'direct') { } else { mwStreams.forEach(s => maybeProxyStream(s, currentId, explicitProxyP || 'cloudflare', req.headers.host, !!explicitProxyP)); }
-          const output = { embeds: [], stream: mwStreams };
-          sse.emit('completed', output);
-          completedAny = true;
-          logScrape('success', `[${currentId}] ${mwStreams.length} stream(s) found`);
-          break;
-        } else {
-          sse.emit('update', { id: currentId, percentage: 100, status: 'notfound', reason: 'No streamable qualities/sources found' });
-        }
-      } else {
-        sse.emit('update', { id: currentId, percentage: 100, status: 'notfound', reason: 'No streams returned' });
-      }
-    } catch (e) {
-      sse.emit('update', { id: currentId, percentage: 100, status: 'failure', error: e.message });
-      logScrape('error', `[${currentId}] ${e.message}`);
     }
   }
 
   if (!sse.cancelled() && !completedAny) {
     sse.emit('noOutput', '');
   }
-  if (!sse.cancelled()) {
-    sse.emit('done', '');
-    logScrape('info', `Single-source test finished. Completed: ${completedAny}`);
+  res.end();
+});
+
+// GET /scrape/source - SSE endpoint for a single source
+app.get('/scrape/source', async (req, res) => {
+  const { id, type, tmdbId, season, episode, seasonNumber, episodeNumber } = req.query;
+  if (!id || !tmdbId) return res.status(400).json({ error: 'id and tmdbId required' });
+  const sse = sendSSE(req, res);
+  if (sse.cancelled()) return;
+
+  const mod = providers[id];
+  if (!mod) {
+    sse.emit('error', { name: 'NotFoundError', message: `Source ${id} not found` });
+    res.end();
+    return;
   }
+
+  try {
+    sse.emit('start', id);
+
+    // Emit realtime progress fill while the scraper works
+    let progress = 0;
+    const progressTimer = setInterval(() => {
+      if (sse.cancelled()) { clearInterval(progressTimer); return; }
+      progress = Math.min(progress + 4, 85);
+      sse.emit('update', { id, percentage: progress, status: 'pending' });
+    }, 400);
+
+    const mediaType = ['show', 'series'].includes(String(type || '').toLowerCase()) ? 'tv' : (type || 'movie');
+    const sNum = season || seasonNumber || null;
+    const eNum = episode || episodeNumber || null;
+    const streams = await mod.getStreams(tmdbId, mediaType, sNum, eNum);
+    clearInterval(progressTimer);
+    if (sse.cancelled()) return;
+
+    const filtered = sortStreamsByQuality(filterStreams(streams || [], id));
+
+    if (filtered && filtered.length > 0) {
+      const mwStreams = filtered
+        .map((s, i) => scraperStreamToMwStream(s, id + '-' + i))
+        .filter(Boolean);
+      if (mwStreams.length > 0) {
+        sse.emit('update', { id, percentage: 100, status: 'success' });
+        mwStreams.forEach(s => makeStreamUrlsAbsolute(s, req.headers.host));
+        const output = { embeds: [], stream: mwStreams };
+        sse.emit('completed', output);
+      } else {
+        sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streamable qualities/sources found' });
+        sse.emit('noOutput', '');
+      }
+    } else {
+      sse.emit('update', { id, percentage: 100, status: 'notfound', reason: 'No streams returned' });
+      sse.emit('noOutput', '');
+    }
+  } catch (e) {
+    sse.emit('update', { id, percentage: 100, status: 'failure', error: e.message });
+    sse.emit('noOutput', '');
+  }
+
+  // Tell EventSource clients that the scrape ended normally before closing
+  // the connection. Without this, the browser reports a reconnect/error even
+  // after a successful completed event.
+  if (!sse.cancelled()) sse.emit('done', '');
   res.end();
 });
 
@@ -822,8 +613,6 @@ app.get('/api/providers', (req, res) => {
       enabled: config.providers[id]?.enabled ?? true,
       priority: config.providers[id]?.priority ?? 999,
       disabledServers: config.providers[id]?.disabledServers || [],
-      serverOrder: config.providers[id]?.serverOrder || [],
-      proxyMode: config.providers[id]?.proxyMode || 'auto',
     };
   }
   res.json(result);
@@ -872,26 +661,14 @@ app.post('/api/providers/:id/priority', (req, res) => {
   res.json({ id, priority });
 });
 
-// Update disabled servers / order for a provider
+// Update disabled servers for a provider
 app.post('/api/providers/:id/servers', (req, res) => {
   const { id } = req.params;
-  const { disabledServers, serverOrder } = req.body;
+  const { disabledServers } = req.body;
   if (!config.providers[id]) return res.status(404).json({ error: 'Provider not found' });
-  if (Array.isArray(disabledServers)) config.providers[id].disabledServers = disabledServers;
-  if (Array.isArray(serverOrder)) config.providers[id].serverOrder = serverOrder;
+  config.providers[id].disabledServers = disabledServers || [];
   saveConfig();
-  res.json({ id, disabledServers: config.providers[id].disabledServers || [], serverOrder: config.providers[id].serverOrder || [] });
-});
-
-// Set proxy mode for a provider (auto = proxy ip-locked only, force = always, off = raw)
-app.post('/api/providers/:id/proxy', (req, res) => {
-  const { id } = req.params;
-  const { mode } = req.body;
-  if (!config.providers[id]) return res.status(404).json({ error: 'Provider not found' });
-  if (!['auto', 'force', 'off'].includes(mode)) return res.status(400).json({ error: 'mode must be auto, force or off' });
-  config.providers[id].proxyMode = mode;
-  saveConfig();
-  res.json({ id, proxyMode: mode });
+  res.json({ id, disabledServers: config.providers[id].disabledServers });
 });
 
 // Subtitles endpoint
@@ -1099,12 +876,6 @@ app.get('/api/search/stream', async (req, res) => {
           }
           const proxyUrl = toProxyUrl(stream.url, stream.headers, stream.type);
           if (proxyUrl !== stream.url) stream.proxyUrl = proxyUrl;
-          // Honor the provider's proxyMode (auto/force/off) so mp4s/files proxy like in /scrape
-          const pm = config.providers[id]?.proxyMode || 'auto';
-          if (pm !== 'off' && (pm === 'force' || (stream.headers && Object.keys(stream.headers).length > 0))) {
-            const base = req.headers.host ? `https://${req.headers.host}` : '';
-            stream.proxyUrl = `${base}/proxy?u=${Buffer.from(stream.url).toString('base64url')}&h=${Buffer.from(JSON.stringify(stream.headers || {})).toString('base64url')}`;
-          }
           emit('stream', { provider: id, name, quality: stream.quality || 'Auto', url: stream.url, proxyUrl: stream.proxyUrl || '', type: stream.type, title: stream.title || '' });
         }
         emit('provider-done', { provider: id, name, count: filtered.length, servers: extractStreamServers(filtered) });
@@ -1216,28 +987,6 @@ function decodeB64url(str) {
 function rewriteHlsPlaylist(playlist, baseUrl, headers, host) {
   const headerB64 = encodeB64url(JSON.stringify(headers));
   const prefix = host ? `https://${host}` : '';
-
-  // Media playlists MUST contain #EXT-X-TARGETDURATION (hls.js rejects them with levelParsingError).
-  // Some CDNs omit it - inject it based on the largest EXTINF duration seen.
-  if (playlist.startsWith('#EXTM3U') && !playlist.includes('#EXT-X-TARGETDURATION:')) {
-    let maxDur = 0;
-    const durRe = /#EXTINF:\s*(\d*(?:\.\d+)?)/g;
-    let m;
-    while ((m = durRe.exec(playlist)) !== null) {
-      const d = parseFloat(m[1]);
-      if (d > maxDur) maxDur = d;
-    }
-    if (maxDur > 0) {
-      const target = Math.ceil(maxDur);
-      const targetLine = `#EXT-X-TARGETDURATION:${target}`;
-      const m3uMatch = playlist.match(/^(#EXTM3U\r?\n(?:#EXT-X-VERSION:[^\r\n]*\r?\n)?)/);
-      if (m3uMatch) {
-        playlist = playlist.replace(m3uMatch[1], `${m3uMatch[1]}${targetLine}\n`);
-      } else {
-        playlist = `#EXTM3U\n${targetLine}\n` + playlist.replace(/^#EXTM3U\r?\n?/, '');
-      }
-    }
-  }
 
   // Reorder master playlist variants by bandwidth descending so highest quality plays first
   const lines = playlist.split('\n');
@@ -1369,7 +1118,6 @@ app.get('/proxy', async (req, res) => {
     const response = await fetch(targetUrl, opts);
 
     if (!response.ok && response.status !== 206) {
-      console.log(`[proxy] ${req.headers['x-real-ip'] || req.ip || ''} ${targetUrl} -> STATUS ${response.status} (not ok)`);
       return res.status(response.status).send(`Provider returned ${response.status}`);
     }
 
@@ -1390,7 +1138,6 @@ app.get('/proxy', async (req, res) => {
     if (first.done) { res.end(); return; }
 
     const firstHead = Buffer.from(first.value).toString('utf8', 0, Math.min(first.value.length, 30));
-    console.log(`[proxy] ${req.headers['x-real-ip'] || req.ip || ''} ${targetUrl} -> ${response.status} ct=${contentType} first=0x${Buffer.from(first.value.slice(0, 8)).toString('hex')}`);
 
     if (firstHead.startsWith('#EXTM3U') && targetUrl) {
       const allChunks = [first.value];
@@ -1655,40 +1402,9 @@ async function start() {
 
   const server = http.createServer(app);
 
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ server, path: '/ws' });
   setupWebSocket(wss);
   console.log('  WebSocket: /ws');
-
-  // Manual upgrade routing: /ws -> legacy watch-together, /sync-ws -> sync server (port 3002).
-  server.on('upgrade', (req, socket, head) => {
-    const url = req.url || '';
-    if (url.startsWith('/ws')) {
-      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
-      return;
-    }
-    if (!url.startsWith('/sync-ws')) {
-      socket.destroy();
-      return;
-    }
-    const up = net.connect(3002, '127.0.0.1', () => {
-      up.write(
-        'GET /ws HTTP/1.1\r\n' +
-        'Host: 127.0.0.1:3002\r\n' +
-        'Upgrade: websocket\r\n' +
-        'Connection: Upgrade\r\n' +
-        `Sec-WebSocket-Key: ${req.headers['sec-websocket-key']}\r\n` +
-        'Sec-WebSocket-Version: 13\r\n\r\n'
-      );
-      if (head && head.length) up.write(head);
-    });
-    up.on('data', (d) => { if (!socket.destroyed) socket.write(d); });
-    up.on('error', () => { if (!socket.destroyed) socket.destroy(); });
-    up.on('close', () => { if (!socket.destroyed) socket.destroy(); });
-    socket.on('data', (d) => { if (!up.destroyed) up.write(d); });
-    socket.on('error', () => { if (!up.destroyed) up.destroy(); });
-    socket.on('close', () => { if (!up.destroyed) up.destroy(); });
-  });
-  console.log('  Sync: /api -> :3002  |  WebSocket: /sync-ws -> :3002');
 
   server.listen(port, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${port}`);
