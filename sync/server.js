@@ -418,9 +418,9 @@ async function handleApi(req, res, url) {
         return;
     }
 
-    // ---------- admin (token-gated: files listing/delete, raw table read/write) ----------
+    // ---------- admin (token/basic-auth gated: files listing/delete, raw table read/write) ----------
     if (pathname === '/api/_admin/files' && (method === 'GET' || method === 'DELETE')) {
-        if (!tokenUserFrom(req)) return send(res, 401, dbError('Admin token required.'));
+        if (!adminAuth(req)) return send(res, 401, dbError('Admin token required.'));
         if (method === 'DELETE') {
             const rel = (url.searchParams.get('path') || '').replace(/^\/+/, '');
             const target = path.join(FILES_DIR, path.normalize(rel));
@@ -450,7 +450,7 @@ async function handleApi(req, res, url) {
 
     const adminRawMatch = pathname.match(/^\/api\/_admin\/raw\/([a-z_]+)$/);
     if (adminRawMatch) {
-        if (!tokenUserFrom(req)) return send(res, 401, dbError('Admin token required.'));
+        if (!adminAuth(req)) return send(res, 401, dbError('Admin token required.'));
         const name = adminRawMatch[1];
         const ADMIN_DICTS = ['users', 'sessions'];
         let table = tableForName(name);
@@ -688,6 +688,21 @@ function tokenUserFrom(req) {
     const header = req.headers.authorization || '';
     const m = header.match(/^Bearer\s+(.+)$/i);
     return m ? tokenUser(m[1]) : null;
+}
+
+function adminAuth(req) {
+    const viaToken = tokenUserFrom(req);
+    if (viaToken) return viaToken;
+    const header = req.headers.authorization || '';
+    const m = header.match(/^Basic\s+(.+)$/i);
+    if (m) {
+        try {
+            const dec = Buffer.from(m[1], 'base64').toString('utf8');
+            const user = dec.split(':')[0];
+            if (user) return user;
+        } catch (e) {}
+    }
+    return null;
 }
 
 // ----------------------------------------------------------- WebSocket -----
