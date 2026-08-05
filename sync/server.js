@@ -451,18 +451,19 @@ async function handleApi(req, res, url) {
     const adminRawMatch = pathname.match(/^\/api\/_admin\/raw\/([a-z_]+)$/);
     if (adminRawMatch) {
         if (!tokenUserFrom(req)) return send(res, 401, dbError('Admin token required.'));
-        const table = tableForName(adminRawMatch[1]);
-        if (!table) return send(res, 404, dbError(`Unknown table '${adminRawMatch[1]}'`, 'PGRST205'));
         const name = adminRawMatch[1];
+        const ADMIN_DICTS = ['users', 'sessions'];
+        let table = tableForName(name);
+        if (!table && ADMIN_DICTS.includes(name)) table = tables[name];
+        if (!table) return send(res, 404, dbError(`Unknown table '${name}'`, 'PGRST205'));
+        const dictLike = name === 'rooms' || name === 'app_settings' || name === 'party_chat_messages' || ADMIN_DICTS.includes(name);
         if (method === 'GET') {
-            const raw = name === 'rooms' || name === 'app_settings' || name === 'party_chat_messages'
-                ? tables[name] : rowsForTable(name, table);
+            const raw = dictLike ? tables[name] : rowsForTable(name, table);
             return send(res, 200, { data: raw });
         }
         if (method === 'PUT') {
             const body = await readBody(req).catch(() => null);
             if (!body) return send(res, 400, dbError('Invalid JSON body'));
-            const dictLike = name === 'rooms' || name === 'app_settings' || name === 'party_chat_messages';
             if (dictLike && typeof body !== 'object') return send(res, 400, dbError(`Table '${name}' must be a JSON object keyed by id`));
             if (!dictLike && !Array.isArray(body)) return send(res, 400, dbError(`Table '${name}' must be a JSON array`));
             tables[name] = body;
