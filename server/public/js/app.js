@@ -17,6 +17,7 @@ anTrack('pageview', { url: location.href });
 let providers = {};
 let providerOrder = [];
 let allStreams = [];
+let subServerCache = {};
 let player = null;
 let hlsInstance = null;
 let hlsLevels = [];
@@ -895,13 +896,18 @@ async function toggleSubServer(providerId, serverName, enable) {
 }
 
 function renderSubServers(container, providerId, p) {
-  const servers = p._discoveredServers || [];
+  const servers = subServerCache[providerId] || [];
+  const err = subServerCache[providerId + '_error'] || null;
   if (!servers.length) {
-    container.innerHTML = '<h4>🔌 Sub-Servers</h4><div class="loading" style="padding:8px">No sub-servers discovered. Search with this provider first.</div>';
+    container.innerHTML = `
+      <h4>🔌 Sub-Servers</h4>
+      <div class="loading" style="padding:8px">${err ? `⚠️ Scan failed: ${scraperTestEscape(err)}` : 'No sub-servers found yet — scan to discover them.'}
+        <button class="btn-secondary" style="font-size:11px;padding:3px 10px;margin-left:8px" onclick="refreshProviderServers('${providerId}', this)">🔄 Scan</button>
+      </div>`;
     return;
   }
   container.innerHTML = `
-    <h4>🔌 Sub-Servers (${servers.length})</h4>
+    <h4>🔌 Sub-Servers (${servers.length}) <button class="btn-secondary" style="font-size:11px;padding:2px 8px;margin-left:8px" onclick="refreshProviderServers('${providerId}', this)">🔄</button></h4>
     <div class="sub-server-list">
       ${servers.map(s => {
         const disabled = (p.disabledServers || []).includes(s);
@@ -917,20 +923,38 @@ function renderSubServers(container, providerId, p) {
     </div>`;
 }
 
-async function discoverServers(providerId, btn) {
-  btn.disabled = true;
-  btn.textContent = '⏳ Scanning...';
+async function refreshProviderServers(providerId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
   try {
     const data = await api(`/api/providers/${providerId}/discover?q=550&type=movie`);
-    if (!providers[providerId]) return;
-    providers[providerId]._discoveredServers = data.servers || [];
+    subServerCache[providerId] = data.servers || [];
+    subServerCache[providerId + '_error'] = data.error || null;
     const container = document.querySelector(`.sub-servers[data-provider="${providerId}"]`);
-    if (container) renderSubServers(container, providerId, providers[providerId]);
-    btn.textContent = `✅ Found ${data.servers.length} servers`;
+    if (container && providers[providerId]) renderSubServers(container, providerId, providers[providerId]);
+    if (btn) btn.textContent = `✅ ${(data.servers || []).length}`;
   } catch (e) {
-    btn.textContent = '❌ Failed';
+    if (btn) btn.textContent = '❌';
   }
-  setTimeout(() => { btn.disabled = false; if (btn.textContent !== '✅ ...') btn.textContent = '🔍 Discover Servers'; }, 3000);
+  setTimeout(() => { if (btn) { btn.disabled = false; if (btn.textContent === '✅' || btn.textContent === '❌') btn.textContent = '🔄'; } }, 2000);
+}
+
+async function loadAllSubServers(force) {
+  const status = document.getElementById('pvScanStatus');
+  if (status) status.textContent = force ? 'Scanning all providers (may take ~30s)...' : 'Loading sub-servers...';
+  try {
+    const data = await api(`/api/providers/servers/all${force ? '?refresh=1' : ''}`);
+    for (const [id, info] of Object.entries(data.providers || {})) {
+      subServerCache[id] = info.servers || [];
+      subServerCache[id + '_error'] = info.error || null;
+    }
+    for (const [id] of providerOrder) {
+      const section = document.querySelector(`.sub-servers[data-provider="${id}"]`);
+      if (section && providers[id]) renderSubServers(section, id, providers[id]);
+    }
+    if (status) status.textContent = data.cached ? 'Sub-servers loaded (cached)' : 'Sub-servers scanned';
+  } catch (e) {
+    if (status) status.textContent = 'Failed to load sub-servers';
+  }
 }
 
 async function reorderProviders(order) {
@@ -993,6 +1017,8 @@ async function loadProvidersView() {
     <div class="toggle-all-bar">
       <button class="btn-primary" onclick="toggleAllProviders(true)">✅ Enable All</button>
       <button class="btn-secondary" onclick="toggleAllProviders(false)">❌ Disable All</button>
+      <button class="btn-secondary" onclick="loadAllSubServers(true)">🔍 Scan sub-servers</button>
+      <span id="pvScanStatus" style="margin-left:12px;font-size:12px;color:var(--text2)"></span>
       <span style="margin-left:12px;font-size:12px;color:var(--text2)">${Object.values(providers).filter(p => p.enabled).length}/${Object.keys(providers).length} enabled</span>
     </div>`;
   for (const [id, p] of providerOrder) {
@@ -1004,7 +1030,7 @@ async function loadProvidersView() {
           <div class="meta">${p.file || ''} · ${(p.supportedTypes || []).join(', ')}</div>
           <div class="sub-servers" data-provider="${id}">
             <h4>🔌 Sub-Servers</h4>
-            <button class="btn-primary" style="font-size:11px;padding:4px 12px" onclick="discoverServers('${id}', this)">🔍 Discover Servers</button>
+            <div class="loading" style="padding:8px">⏳ Loading...</div>
           </div>
         </div>
         <div class="controls">
@@ -1031,6 +1057,7 @@ async function loadProvidersView() {
   }
   container.innerHTML = html;
   document.getElementById('providerCount').textContent = `${Object.keys(providers).length} providers loaded`;
+  loadAllSubServers(false);
 }
 
 async function toggleAllProviders(enabled) {
@@ -1611,7 +1638,10 @@ function playScraperTestStream(i) {
   if (!s) return;
   const video = document.getElementById('scraperTestVideo');
   if (scraperTestHls) { scraperTestHls.destroy(); scraperTestHls = null; }
-  const url = s.proxyUrl || s.url;
+  const proxySel = document.getElementById('scraperTestProxy');
+  const proxyMode = proxySel ? proxySel.value : '1';
+  const url = proxyMode !== '0' ? (s.proxyUrl || s.url) : s.url;
+  const modeLabel = proxyMode === '0' ? 'direct' : (proxyMode === 'vps' ? 'VPS proxy' : 'proxy');
   if (s.type === 'm3u8' && typeof Hls !== 'undefined' && Hls.isSupported()) {
     video.removeAttribute('src');
     video.innerHTML = '';
@@ -1620,12 +1650,15 @@ function playScraperTestStream(i) {
     scraperTestHls.loadSource(url);
     scraperTestHls.attachMedia(video);
     scraperTestHls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+    scraperTestHls.on(Hls.Events.ERROR, (e, data) => {
+      if (data && data.fatal) scraperTestLog('error', `❌ HLS error: ${data.type} — ${data.details}`);
+    });
   } else {
     video.src = url;
     video.load();
     video.play().catch(() => {});
   }
-  scraperTestLog('info', `🎬 Playing <strong>${scraperTestEscape(s.name)}</strong> (${scraperTestEscape(s.quality || 'Auto')})`);
+  scraperTestLog('info', `🎬 Playing <strong>${scraperTestEscape(s.name)}</strong> (${scraperTestEscape(s.quality || 'Auto')}) via <strong>${modeLabel}</strong>`);
 }
 
 function runScraperTest() {
@@ -1659,7 +1692,7 @@ function runScraperTest() {
   scraperTestES.addEventListener('stream', e => {
     const d = JSON.parse(e.data);
     scraperTestStreams.push({ name: d.name, quality: d.quality, url: d.url, proxyUrl: d.proxyUrl || d.url, type: d.type });
-    scraperTestLog('stream', `✅ <strong>${scraperTestEscape(d.name)}</strong> | ${scraperTestEscape(d.quality)} → <span class="test-url">${scraperTestEscape(d.url.length > 100 ? d.url.substring(0, 100) + '...' : d.url)}</span>`);
+    scraperTestLog('stream', `✅ <strong>${scraperTestEscape(d.name)}</strong> | ${scraperTestEscape(d.quality)} ${d.proxyUrl ? '🔒 proxied' : '🔓 direct'} → <span class="test-url">${scraperTestEscape(d.url.length > 100 ? d.url.substring(0, 100) + '...' : d.url)}</span>`);
     document.getElementById('testRawOutput').textContent = JSON.stringify(scraperTestStreams, null, 2);
     scraperTestRenderStreams();
   });

@@ -96,6 +96,20 @@ function toProxyUrl(url, headers, type) {
   return url;
 }
 
+function buildProxyUrl(stream, req) {
+  if (!stream || typeof stream.url !== 'string') return null;
+  try {
+    const u = encodeB64url(stream.url);
+    let url = `https://${req.headers.host}/proxy?u=${u}`;
+    const h = stream.headers || {};
+    const keys = Object.keys(h).filter(k => h[k] != null);
+    if (keys.length) url += `&h=${encodeB64url(JSON.stringify(Object.fromEntries(keys.map(k => [k, h[k]]))))}`;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
 function makeStreamUrlsAbsolute(mwStream, host) {
   if (!host) return;
   const base = `https://${host}`;
@@ -968,8 +982,10 @@ app.get('/api/search/stream', async (req, res) => {
             else if (stream.url.includes('.mkv')) stream.type = 'mkv';
             else stream.type = 'mp4';
           }
-          const proxyUrl = toProxyUrl(stream.url, stream.headers, stream.type);
-          if (proxyUrl !== stream.url) stream.proxyUrl = proxyUrl;
+          const realUrl = toProxyUrl(stream.url, stream.headers, stream.type);
+          if (realUrl && realUrl !== stream.url) stream.url = realUrl;
+          const proxyUrl = buildProxyUrl(stream, req);
+          if (proxyUrl) stream.proxyUrl = proxyUrl;
           emit('stream', { provider: id, name, quality: stream.quality || 'Auto', url: stream.url, proxyUrl: stream.proxyUrl || '', type: stream.type, title: stream.title || '' });
         }
         emit('provider-done', { provider: id, name, count: filtered.length, servers: extractStreamServers(filtered) });
@@ -1047,6 +1063,38 @@ app.get('/api/providers/:id/discover', async (req, res) => {
   } catch (e) {
     res.json({ provider: id, servers: [], count: 0, error: e.message });
   }
+});
+
+// Scan sub-servers for ALL providers at once (cached 5 min, ?refresh=1 to force)
+let subServerScanCache = { scannedAt: 0, providers: null };
+app.get('/api/providers/servers/all', async (req, res) => {
+  const force = req.query.refresh === '1';
+  const now = Date.now();
+  if (!force && subServerScanCache.providers && now - subServerScanCache.scannedAt < 5 * 60 * 1000) {
+    return res.json({ cached: true, scannedAt: subServerScanCache.scannedAt, providers: subServerScanCache.providers });
+  }
+  const ids = Object.keys(providers);
+  const results = {};
+  const CONC = 5;
+  let idx = 0;
+  async function worker() {
+    while (idx < ids.length) {
+      const id = ids[idx++];
+      try {
+        const mod = providers[id];
+        const streams = await Promise.race([
+          Promise.resolve(mod.getStreams('550', 'movie', null, null)),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 25000)),
+        ]);
+        results[id] = { servers: extractStreamServers(streams || []), count: (streams || []).length, error: null };
+      } catch (e) {
+        results[id] = { servers: [], count: 0, error: e.message };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: CONC }, worker));
+  subServerScanCache = { scannedAt: now, providers: results };
+  res.json({ cached: false, scannedAt: now, providers: results });
 });
 
 // ============ Scraper File Management (Isolated Scraper Test) ============

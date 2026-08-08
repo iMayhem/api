@@ -377,6 +377,7 @@ module.exports = {
         url,
         quality: data.quality || 'auto',
         type: st,
+        headers: { 'User-Agent': UA, 'Referer': HOME },
         title: data.title || data.show_title || null,
       };
     });

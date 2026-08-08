@@ -30,6 +30,7 @@ const TABLES = [
     'download_logs',
     'movora_searches',
     'movora_ai_searches',
+    'movora_comments',
 ];
 
 // ---------------------------------------------------------------- store -----
@@ -47,6 +48,7 @@ const tables = {
     party_chat_messages: {},
     download_logs: [],
     movora_searches: [],
+    movora_comments: [],
     movora_ai_searches: [],
 };
 
@@ -182,7 +184,7 @@ const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 
 // ---------------------------------------------------- room helpers ---------
 
-const ROOM_STALE_MS = 12 * 60 * 60 * 1000;
+const ROOM_STALE_MS = 72 * 60 * 60 * 1000;
 
 function pruneStaleRooms() {
     const cutoff = new Date(Date.now() - ROOM_STALE_MS).toISOString();
@@ -191,13 +193,11 @@ function pruneStaleRooms() {
         const r = tables.rooms[id];
         if (!r.scheduled_start_time || r.scheduled_start_time < cutoff) {
             delete tables.rooms[id];
-            delete tables.party_chat_messages[id];
             changed = true;
         }
     }
     if (changed) {
         saveTable('rooms');
-        saveTable('party_chat_messages');
     }
 }
 
@@ -242,6 +242,7 @@ function tableForName(name) {
         case 'download_logs': return tables.download_logs;
         case 'movora_searches': return tables.movora_searches;
         case 'movora_ai_searches': return tables.movora_ai_searches;
+        case 'movora_comments': return tables.movora_comments;
         default: return null;
     }
 }
@@ -552,6 +553,16 @@ async function handleApi(req, res, url) {
                     tables.polls.push(final);
                     saveTable('polls');
                     saveSeq('polls');
+                    created.push(final);
+                } else if (name === 'movora_comments') {
+                    final.id = nextId('movora_comments');
+                    final.created_at = final.created_at || now;
+                    final.media_type = final.media_type || 'lounge';
+                    if (final.media_id === undefined || final.media_id === null) final.media_id = null;
+                    final.is_hidden = final.is_hidden || 0;
+                    tables.movora_comments.push(final);
+                    saveTable('movora_comments');
+                    saveSeq('movora_comments');
                     created.push(final);
                 } else if (name === 'download_logs' || name === 'movora_searches' || name === 'movora_ai_searches') {
                     final.id = nextId(name);
@@ -868,12 +879,11 @@ function handleWsMessage(client, text) {
             if (!client.presence.has(room)) client.presence.set(room, new Map());
             const existing = client.presence.get(room).get(key);
             client.presence.get(room).set(key, payload);
-            if (existing) {
-                // update — notify as join with new payload
-                broadcastPresence(room, { add: { [key]: [payload] }, remove: { [key]: [existing] } });
-            } else {
-                broadcastPresence(room, { add: { [key]: [payload] } });
-            }
+            // Update or first track: always emit only add. Emitting remove+add for the
+            // same key makes clients delete the entry from their local presence state
+            // (they apply remove after add), causing lobby counts to flicker.
+            broadcastPresence(room, { add: { [key]: [payload] } });
+            void existing;
             break;
         }
         case 'presence_untrack': {

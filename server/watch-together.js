@@ -4,6 +4,26 @@ const rooms = new Map();
 
 const ROOM_EXPIRE_MS = 6 * 60 * 60 * 1000;
 
+// Persist watch-together chat messages to the Moovie sync database
+// (JSON-file DB on port 3002 — viewable in the DB admin panel).
+// Schema matches the Moovie app's party_chat_messages (user_name/message).
+const SYNC_BASE = process.env.SYNC_URL || 'http://127.0.0.1:3002';
+
+function persistChatMessage(msg) {
+  try {
+    fetch(`${SYNC_BASE}/api/party_chat_messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        room_id: msg.room_id,
+        user_name: msg.username,
+        message: msg.text,
+        image_url: null,
+      }),
+    }).catch(() => {});
+  } catch (e) {}
+}
+
 setInterval(() => {
   const now = Date.now();
   for (const [id, room] of rooms) {
@@ -85,11 +105,18 @@ define('chat_message', (ws, data) => {
   if (!ws._roomId) return;
   const room = rooms.get(ws._roomId);
   if (!room) return;
+  const text = String(data.text || '').slice(0, 1000);
   broadcast(room, {
     type: 'chat_message',
     user_id: ws._userId,
     username: ws._username,
-    text: String(data.text || '').slice(0, 1000),
+    text,
+  });
+  persistChatMessage({
+    room_id: ws._roomId,
+    user_id: ws._userId,
+    username: ws._username,
+    text,
   });
 });
 
