@@ -139,134 +139,7 @@ function switchView(name) {
   if (name === 'analytics') loadAnalytics();
   if (name === 'info') loadInfo();
   if (name === 'player') initPlyr();
-  if (name === 'embed') initEmbedView();
-  else {
-    if (embedLogSource) { embedLogSource.close(); embedLogSource = null; }
-    if (myLogsSource) { myLogsSource.close(); myLogsSource = null; }
-  }
-  if (name === 'scraper-test') initScraperTest();
-  else destroyTestPlayer();
-}
-
-// ── Embed Debug View ───────────────────────────────────────────────────
-let embedLogSource = null;
-let myLogsSource = null;
-
-function initEmbedView() {
-  const prev = document.getElementById('embedTmdbId').value || '550';
-  if (!document.getElementById('embedFrame').src.includes('tmdbId=')) loadEmbed(prev, 'movie');
-  connectEmbedLogs();
-  connectMyLogs();
-}
-
-function loadEmbed(tmdbId, type, season, episode) {
-  const id = tmdbId || document.getElementById('embedTmdbId').value.trim() || '550';
-  const t = type || document.getElementById('embedType').value;
-  const s = season || document.getElementById('embedSeason').value;
-  const e = episode || document.getElementById('embedEpisode').value;
-  let url = `/embed/?tmdbId=${id}&type=${t}`;
-  if (s) url += `&season=${s}`;
-  if (e) url += `&episode=${e}`;
-  document.getElementById('embedFrame').src = url;
-  if (document.getElementById('embedLiveLogs').checked) connectEmbedLogs();
-}
-
-function clearEmbedLogs() {
-  document.getElementById('embedLogPanel').innerHTML = '';
-}
-
-function clearMyLogs() {
-  document.getElementById('myLogsPanel').innerHTML = '';
-}
-
-async function deployEmbed() {
-  const btn = document.getElementById('deployBtn');
-  const status = document.getElementById('deployStatus');
-  btn.disabled = true;
-  status.innerText = 'deploying...';
-  status.style.color = '#f59e0b';
-  try {
-    const r = await fetch('/api/embed/deploy', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${adminToken}` }
-    });
-    const j = await r.json();
-    if (j.ok) {
-      status.innerText = j.unchanged ? 'already in sync' : `deployed [${(j.md5 || '').slice(0, 8)}]`;
-      status.style.color = '#22c55e';
-    } else {
-      status.innerText = 'failed: ' + (j.error || r.status);
-      status.style.color = '#ef4444';
-    }
-  } catch (e) {
-    status.innerText = 'failed: ' + e.message;
-    status.style.color = '#ef4444';
-  }
-  btn.disabled = false;
-}
-
-function connectMyLogs() {
-  if (myLogsSource) { myLogsSource.close(); myLogsSource = null; }
-  if (!document.getElementById('myLogsLive').checked) {
-    document.getElementById('myLogsStatus').innerText = 'disabled';
-    return;
-  }
-  const panel = document.getElementById('myLogsPanel');
-  const status = document.getElementById('myLogsStatus');
-  const mySid = sessionStorage.getItem('peestream_sid');
-  if (!mySid) {
-    status.innerText = 'no embed session yet — load the embed first';
-    status.style.color = '#f59e0b';
-    return;
-  }
-  status.innerText = 'connecting...';
-  status.style.color = '#f59e0b';
-  myLogsSource = new EventSource('/api/scrape/log');
-  myLogsSource.onopen = () => { status.innerText = `● live (${mySid})`; status.style.color = '#22c55e'; };
-  myLogsSource.onerror = () => { status.innerText = 'reconnecting...'; status.style.color = '#f59e0b'; };
-  myLogsSource.onmessage = (e) => {
-    try {
-      const entry = JSON.parse(e.data);
-      if (entry.source !== 'client' || entry.sid !== mySid) return;
-      const time = new Date(entry.time).toLocaleTimeString();
-      const colors = { info: '#8b8fa3', success: '#22c55e', warn: '#f59e0b', error: '#ef4444' };
-      const color = colors[entry.type] || '#8b8fa3';
-      const line = document.createElement('div');
-      line.style.cssText = 'white-space:pre-wrap;word-break:break-all';
-      line.innerHTML = `<span style="color:#555968">${time}</span> <span style="color:${color};font-weight:${entry.type === 'error' ? 700 : 400}">${entry.message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
-      panel.appendChild(line);
-      panel.scrollTop = panel.scrollHeight;
-    } catch (err) {}
-  };
-}
-
-function connectEmbedLogs() {
-  if (embedLogSource) { embedLogSource.close(); embedLogSource = null; }
-  if (!document.getElementById('embedLiveLogs').checked) {
-    document.getElementById('embedLogStatus').innerText = 'disabled';
-    return;
-  }
-  const panel = document.getElementById('embedLogPanel');
-  const status = document.getElementById('embedLogStatus');
-  status.innerText = 'connecting...';
-  status.style.color = '#f59e0b';
-  embedLogSource = new EventSource('/api/scrape/log');
-  embedLogSource.onopen = () => { status.innerText = '● live'; status.style.color = '#22c55e'; };
-  embedLogSource.onerror = () => { status.innerText = 'reconnecting...'; status.style.color = '#f59e0b'; };
-  embedLogSource.onmessage = (e) => {
-    try {
-      const entry = JSON.parse(e.data);
-      if (entry.source === 'client' && entry.sid && entry.sid === sessionStorage.getItem('peestream_sid')) return;
-      const time = new Date(entry.time).toLocaleTimeString();
-      const colors = { info: '#8b8fa3', success: '#22c55e', warn: '#f59e0b', error: '#ef4444' };
-      const color = colors[entry.type] || '#8b8fa3';
-      const line = document.createElement('div');
-      line.style.cssText = 'white-space:pre-wrap;word-break:break-all';
-      line.innerHTML = `<span style="color:#555968">${time}</span> <span style="color:${color};font-weight:${entry.type === 'error' ? 700 : 400}">${entry.message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
-      panel.appendChild(line);
-      panel.scrollTop = panel.scrollHeight;
-    } catch (err) {}
-  };
+  if (name === 'scraper-test') loadScraperTestView();
 }
 
 async function doSearch() {
@@ -278,7 +151,7 @@ async function doSearch() {
 
   const container = document.getElementById('results');
   const status = document.getElementById('statusBar');
-  container.innerHTML = '<div class="loading"><div class="search-spinner"></div><span>Searching all enabled providers...</span></div>';
+  container.innerHTML = '<div class="loading">Searching all enabled providers...</div>';
   status.textContent = 'Searching...';
 
   currentSearchContext = { type, season, episode };
@@ -302,6 +175,10 @@ async function doSearch() {
         });
       }
     }
+    // Highest quality first so autoplay and fallbacks try the best rendition first
+    allStreams.sort(function(a, b) {
+      return rankQuality(b.quality || '') - rankQuality(a.quality || '');
+    });
 
     if (data.results.length === 0) {
       container.innerHTML = '<div class="no-results">No streams found. Try a different ID or media type.<br>' +
@@ -872,11 +749,7 @@ function loadPlayer(url, title, type) {
       player.play();
     });
     hlsInstance.on(Hls.Events.ERROR, (e, data) => {
-      if (data.fatal) {
-        const reason = (data.reason || data.error || data.err || '').toString().slice(0, 200);
-        anTrack('error', { message: `${data.type}: ${data.details}${reason ? ` - ${reason}` : ''}`, url });
-        markStreamLoaded();
-      }
+      if (data.fatal) { anTrack('error', { message: data.type + ': ' + data.details, url }); markStreamLoaded(); }
     });
     hlsInstance.on(Hls.Events.LEVEL_LOADED, () => markStreamLoaded());
   } else {
@@ -1016,59 +889,31 @@ async function toggleSubServer(providerId, serverName, enable) {
     method: 'POST',
     body: JSON.stringify({ disabledServers: disabled })
   });
-  document.querySelectorAll(`.sub-servers[data-provider="${providerId}"]`).forEach(section => renderSubServers(section, providerId, p));
+  const section = document.querySelector(`.sub-servers[data-provider="${providerId}"]`);
+  if (section) renderSubServers(section, providerId, p);
 }
 
 function renderSubServers(container, providerId, p) {
-  const isNamed = Array.isArray(p.sources) && p.sources.length > 0;
-  let servers = isNamed ? [...p.sources] : (p._discoveredServers || []);
+  const servers = p._discoveredServers || [];
   if (!servers.length) {
     container.innerHTML = '<h4>🔌 Sub-Servers</h4><div class="loading" style="padding:8px">No sub-servers discovered. Search with this provider first.</div>';
     return;
   }
-  if (isNamed && p._serverOrder) {
-    servers.sort((a, b) => {
-      const ia = p._serverOrder.indexOf(a.key);
-      const ib = p._serverOrder.indexOf(b.key);
-      return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib);
-    });
-  }
   container.innerHTML = `
     <h4>🔌 Sub-Servers (${servers.length})</h4>
     <div class="sub-server-list">
-      ${servers.map((s, i) => {
-        const key = isNamed ? s.key : s;
-        const label = isNamed ? (s.label || s.key) : s;
-        const disabled = (p.disabledServers || []).includes(key);
+      ${servers.map(s => {
+        const disabled = (p.disabledServers || []).includes(s);
         return `
           <div class="sub-server-item">
-            ${isNamed ? `
-              <button onclick="moveSubServer('${providerId}', '${key.replace(/'/g, "\\'")}', -1)" ${i === 0 ? 'disabled' : ''} style="padding:1px 6px;font-size:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:4px;color:var(--text2);cursor:pointer">▲</button>
-              <button onclick="moveSubServer('${providerId}', '${key.replace(/'/g, "\\'")}', 1)" ${i === servers.length - 1 ? 'disabled' : ''} style="padding:1px 6px;font-size:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:4px;color:var(--text2);cursor:pointer">▼</button>` : ''}
             <label class="toggle small-toggle">
-              <input type="checkbox" ${disabled ? '' : 'checked'} onchange="toggleSubServer('${providerId}', '${key.replace(/'/g, "\\'")}', this.checked)">
+              <input type="checkbox" ${disabled ? '' : 'checked'} onchange="toggleSubServer('${providerId}', '${s.replace(/'/g, "\\'")}', this.checked)">
               <span class="slider"></span>
             </label>
-            <span style="${disabled ? 'text-decoration:line-through;color:var(--text2)' : ''}">${label}</span>
+            <span style="${disabled ? 'text-decoration:line-through;color:var(--text2)' : ''}">${s}</span>
           </div>`;
       }).join('')}
     </div>`;
-}
-
-async function moveSubServer(providerId, key, dir) {
-  const p = providers[providerId];
-  if (!p || !p._serverOrder) return;
-  const idx = p._serverOrder.indexOf(key);
-  const swap = idx + dir;
-  if (idx < 0 || swap < 0 || swap >= p._serverOrder.length) return;
-  const o = [...p._serverOrder];
-  [o[idx], o[swap]] = [o[swap], o[idx]];
-  p._serverOrder = o;
-  await api(`/api/providers/${providerId}/servers`, {
-    method: 'POST',
-    body: JSON.stringify({ disabledServers: p.disabledServers || [], serverOrder: o })
-  });
-  document.querySelectorAll(`.sub-servers[data-provider="${providerId}"]`).forEach(section => renderSubServers(section, providerId, p));
 }
 
 async function discoverServers(providerId, btn) {
@@ -1162,14 +1007,6 @@ async function loadProvidersView() {
           </div>
         </div>
         <div class="controls">
-          <div class="proxy-mode-row" title="Proxy mode: Auto = proxy only ip-locked streams, Always = proxy everything, Off = raw URLs">
-            <label style="font-size:11px;color:var(--text2,#888);margin-right:4px">Proxy</label>
-            <select data-provider="${id}" onchange="setProxyMode('${id}', this.value)" style="padding:4px 6px;border-radius:6px;background:#15152a;color:#e5e7eb;border:1px solid rgba(255,255,255,.12);font-size:11px">
-              <option value="auto" ${(p.proxyMode || 'auto') === 'auto' ? 'selected' : ''}>Auto</option>
-              <option value="force" ${p.proxyMode === 'force' ? 'selected' : ''}>Always</option>
-              <option value="off" ${p.proxyMode === 'off' ? 'selected' : ''}>Off (raw)</option>
-            </select>
-          </div>
           <div class="priority-btns">
             <button onclick="movePriority('${id}', -1)" title="Move up">▲</button>
             <button onclick="movePriority('${id}', 1)" title="Move down">▼</button>
@@ -1192,29 +1029,12 @@ async function loadProvidersView() {
       </div>`;
   }
   container.innerHTML = html;
-  for (const [id, p] of providerOrder) {
-    if (Array.isArray(p.sources) && p.sources.length) {
-      const base = Array.isArray(p.serverOrder) && p.serverOrder.length ? p.serverOrder : p.sources.map(s => s.key);
-      p._serverOrder = base.filter(k => p.sources.some(s => s.key === k));
-      const section = document.querySelector(`.sub-servers[data-provider="${id}"]`);
-      if (section) renderSubServers(section, id, p);
-    }
-  }
   document.getElementById('providerCount').textContent = `${Object.keys(providers).length} providers loaded`;
 }
 
 async function toggleAllProviders(enabled) {
   await api('/api/providers/toggle-all', { method: 'POST', body: JSON.stringify({ enabled }) });
   loadProvidersView();
-}
-
-async function setProxyMode(id, mode) {
-  try {
-    await api('/api/providers/' + id + '/proxy', { method: 'POST', body: JSON.stringify({ mode }) });
-  } catch (e) {
-    alert('Failed to set proxy mode: ' + e.message);
-    loadProvidersView();
-  }
 }
 
 async function loadSettings() {
@@ -1535,6 +1355,7 @@ function startTest() {
   // ── Smart ping state ──
   let pingPromises = [];
   let firstStreamPlayed = false;
+  let firstPlayDebounce = null;
 
   function playNow(stream) {
     firstStreamPlayed = true;
@@ -1579,8 +1400,20 @@ function startTest() {
     if (smartPing) {
       pingPromises.push(doPing());
     } else if (!firstStreamPlayed) {
-      playNow(stream);
-      appendTestLog('success', '⚡ Auto-played <strong>' + data.name + '</strong> (' + data.quality + ') immediately');
+      // Wait a moment to collect more streams, then auto-play the highest quality one
+      if (!firstPlayDebounce) {
+        firstPlayDebounce = setTimeout(function() {
+          firstPlayDebounce = null;
+          if (firstStreamPlayed || allStreams.length === 0) return;
+          const sorted = allStreams.slice().sort(function(a, b) {
+            return rankQuality(b.quality || '') - rankQuality(a.quality || '');
+          });
+          const best = sorted[0];
+          firstStreamPlayed = true;
+          playNow(best);
+          appendTestLog('success', '⚡ Auto-played highest quality <strong>' + (best.name || best.provider || '') + '</strong> (' + (best.quality || 'Auto') + ')');
+        }, 1500);
+      }
       pingPromises.push(doPing()); // background ping for display
     } else {
       pingPromises.push(doPing()); // background ping for display
@@ -1728,318 +1561,158 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
+// ── Isolated Scraper Test ────────────────────────────────────────────────
+let scraperTestES = null;
+let scraperTestHls = null;
+let scraperTestStreams = [];
 
-// ── Scraper Test View ───────────────────────────────────────────────────
-let scraperTestSource = null;
-let testProvidersLoaded = false;
-let testProvidersData = null;
+function scraperTestEscape(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
-async function initScraperTest() {
-  if (testProvidersLoaded) return;
-  testProvidersLoaded = true;
-  const sel = document.getElementById('testProvider');
+async function loadScraperTestView() {
   try {
-    const provs = await api('/api/providers');
-    testProvidersData = provs;
-    const sorted = Object.entries(provs).sort((a, b) => (a[1].priority || 999) - (b[1].priority || 999));
-    sorted.forEach(function([id, p]) {
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = `${p.name || id} ${p.enabled ? '' : '(disabled)'}`;
-      sel.appendChild(opt);
-    });
-    const firstEnabled = sorted.find(function([id, p]) { return p.enabled; });
-    if (firstEnabled) sel.value = firstEnabled[0];
-    sel.addEventListener('change', renderTestSubServers);
-    renderTestSubServers();
+    const data = await api('/api/providers');
+    const list = Object.entries(data).sort((a, b) => (a[1].priority || 999) - (b[1].priority || 999));
+    const sel = document.getElementById('testProvider');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">-- Select provider --</option>' + list.map(([id, p]) => {
+      const enabled = p.enabled ? '' : ' (disabled)';
+      const selected = id === prev ? ' selected' : '';
+      return `<option value="${scraperTestEscape(id)}"${selected}>${scraperTestEscape(p.name || id)}${enabled}</option>`;
+    }).join('');
+    const files = await api('/api/scrapers/files');
+    const fsel = document.getElementById('scraperFileSelect');
+    const prevFile = fsel.value;
+    fsel.innerHTML = files.files.map(f => `<option value="${scraperTestEscape(f.name)}">${scraperTestEscape(f.name)}</option>`).join('');
+    if (prevFile && files.files.some(f => f.name === prevFile)) fsel.value = prevFile;
   } catch (e) {
-    sel.innerHTML = '<option value="">Failed to load providers</option>';
+    console.error('loadScraperTestView failed:', e);
   }
-  initScraperEditor();
 }
 
-function renderTestSubServers() {
-  const sel = document.getElementById('testProvider');
-  const container = document.getElementById('testSubServers');
-  const id = sel.value;
-  const p = testProvidersData ? testProvidersData[id] : null;
-  if (!p || !Array.isArray(p.sources) || !p.sources.length) {
-    container.style.display = 'none';
-    container.innerHTML = '';
-    return;
+function scraperTestLog(cls, html) {
+  const el = document.getElementById('testEventLog');
+  const time = new Date().toLocaleTimeString();
+  el.innerHTML += `<div class="test-log-entry test-log-${cls}"><span class="test-log-time">${time}</span> ${html}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function scraperTestRenderStreams() {
+  const el = document.getElementById('scraperTestStreamList');
+  el.innerHTML = scraperTestStreams.map((s, i) =>
+    `<button onclick="playScraperTestStream(${i})" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#e5e7eb;padding:6px 10px;border-radius:6px;cursor:pointer;text-align:left;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">▶ ${scraperTestEscape(s.name)} (${scraperTestEscape(s.quality || 'Auto')})</button>`
+  ).join('');
+}
+
+function playScraperTestStream(i) {
+  const s = scraperTestStreams[i];
+  if (!s) return;
+  const video = document.getElementById('scraperTestVideo');
+  if (scraperTestHls) { scraperTestHls.destroy(); scraperTestHls = null; }
+  const url = s.proxyUrl || s.url;
+  if (s.type === 'm3u8' && typeof Hls !== 'undefined' && Hls.isSupported()) {
+    video.removeAttribute('src');
+    video.innerHTML = '';
+    video.load();
+    scraperTestHls = new Hls(HLS_CONFIG);
+    scraperTestHls.loadSource(url);
+    scraperTestHls.attachMedia(video);
+    scraperTestHls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+  } else {
+    video.src = url;
+    video.load();
+    video.play().catch(() => {});
   }
-  if (!p._serverOrder) {
-    const base = Array.isArray(p.serverOrder) && p.serverOrder.length ? p.serverOrder : p.sources.map(s => s.key);
-    p._serverOrder = base.filter(k => p.sources.some(s => s.key === k));
-  }
-  container.setAttribute('data-provider', id);
-  container.style.display = 'block';
-  renderSubServers(container, id, p);
-}
-
-function testAppend(event, data) {
-  const log = document.getElementById('testEventLog');
-  const colors = { start: '#60a5fa', update: '#8b8fa3', completed: '#22c55e', done: '#888', noOutput: '#f59e0b', error: '#ef4444' };
-  const color = colors[event] || '#8b8fa3';
-  const line = document.createElement('div');
-  line.style.cssText = 'white-space:pre-wrap;word-break:break-all;padding:1px 0';
-  let text = '';
-  try {
-    text = typeof data === 'string' ? data : JSON.stringify(data);
-  } catch (e) { text = String(data); }
-  line.innerHTML = `<span style="color:${color};font-weight:700">event: ${event}</span> <span style="color:#c9ced6">${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
-  log.appendChild(line);
-  log.scrollTop = log.scrollHeight;
-}
-
-function testAppendRaw(text) {
-  const pre = document.getElementById('testRawOutput');
-  pre.textContent = text;
-}
-
-function clearScraperTest() {
-  if (scraperTestSource) { scraperTestSource.close(); scraperTestSource = null; }
-  document.getElementById('testEventLog').innerHTML = '';
-  document.getElementById('testRawOutput').textContent = 'Run a test to see raw output...';
-  document.getElementById('testStatus').innerText = '';
+  scraperTestLog('info', `🎬 Playing <strong>${scraperTestEscape(s.name)}</strong> (${scraperTestEscape(s.quality || 'Auto')})`);
 }
 
 function runScraperTest() {
   const provider = document.getElementById('testProvider').value;
   const mode = document.getElementById('testMode').value;
-  const tmdbId = document.getElementById('scraperTestTmdbId').value.trim();
+  const tmdb = document.getElementById('scraperTestTmdbId').value.trim();
   const type = document.getElementById('testType').value;
   const season = document.getElementById('scraperTestSeason').value.trim();
   const episode = document.getElementById('scraperTestEpisode').value.trim();
-  const proxy = document.getElementById('scraperTestProxy') ? document.getElementById('scraperTestProxy').value : '1';
-  const proxyLabel = proxy === '0' ? 'direct' : proxy === 'vps' ? 'vps proxy' : 'cloudflare proxy';
+  if (!tmdb) { alert('Enter a TMDB ID'); return; }
+  if (mode === 'isolated' && !provider) { alert('Select a provider'); return; }
 
-  if (!tmdbId) { alert('Enter a TMDB ID'); return; }
-  if (mode === 'isolated' && !provider) { alert('Select a provider for isolated test'); return; }
-
-  if (scraperTestSource) scraperTestSource.close();
-  document.getElementById('testEventLog').innerHTML = '';
-  testAppendRaw('');
-  const streamList = document.getElementById('scraperTestStreamList');
-  if (streamList) streamList.innerHTML = '';
-  destroyTestPlayer();
+  clearScraperTest();
   const status = document.getElementById('testStatus');
+  status.textContent = 'Running...';
 
-  let url;
-  const proxySuffix = `&proxy=${proxy}`;
-  if (mode === 'isolated') {
-    url = `/scrape/source?id=${encodeURIComponent(provider)}&tmdbId=${encodeURIComponent(tmdbId)}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}&fallback=false${proxySuffix}`;
-    status.innerText = `Testing ${provider} (isolated, ${proxyLabel})...`;
-  } else {
-    url = `/scrape?tmdbId=${encodeURIComponent(tmdbId)}&type=${type}${season ? `&season=${season}` : ''}${episode ? `&episode=${episode}` : ''}${proxySuffix}`;
-    status.innerText = `Running embed-mode scrape (${proxyLabel})...`;
-  }
+  let url = `/api/search/stream?q=${encodeURIComponent(tmdb)}&type=${type}`;
+  if (season) url += `&season=${season}`;
+  if (episode) url += `&episode=${episode}`;
+  if (mode === 'isolated') url += `&provider=${encodeURIComponent(provider)}`;
 
-  const es = new EventSource(url);
-  scraperTestSource = es;
-  const streams = [];
-  const events = {};
-
-  es.addEventListener('init', (e) => {
-    const data = JSON.parse(e.data);
-    events.init = data;
-    testAppend('init', data);
-    status.innerText = `Providers: ${data.sourceIds.join(', ')}`;
+  scraperTestES = new EventSource(url);
+  scraperTestES.addEventListener('start', e => {
+    const d = JSON.parse(e.data);
+    scraperTestLog('info', `🔍 Testing <strong>${d.total}</strong> provider(s)...`);
   });
-  es.addEventListener('start', (e) => testAppend('start', e.data));
-  es.addEventListener('update', (e) => {
-    const data = JSON.parse(e.data);
-    testAppend('update', data);
-    if (data.note) status.innerText = `[${data.id}] ${data.note}`;
+  scraperTestES.addEventListener('provider-start', e => {
+    const d = JSON.parse(e.data);
+    scraperTestLog('info', `⏳ <strong>${scraperTestEscape(d.name)}</strong> scraping...`);
   });
-  es.addEventListener('completed', (e) => {
-    const data = JSON.parse(e.data);
-    testAppend('completed', data);
-    const sid = data.id || data.sourceId || 'unknown';
-    if (Array.isArray(data.stream)) {
-      data.stream.forEach((s, i) => {
-        const sId = s.id || `${sid}-${i}`;
-        streams.push({ sourceId: sId, stream: s });
-        addTestStream(s, sId);
-      });
-    } else if (data.stream) {
-      streams.push({ sourceId: sid, stream: data.stream });
-      addTestStream(data.stream, sid);
-    }
-    testAppendRaw(JSON.stringify(streams, null, 2));
-    status.innerText = `${streams.length} stream(s) resolved`;
+  scraperTestES.addEventListener('stream', e => {
+    const d = JSON.parse(e.data);
+    scraperTestStreams.push({ name: d.name, quality: d.quality, url: d.url, proxyUrl: d.proxyUrl || d.url, type: d.type });
+    scraperTestLog('stream', `✅ <strong>${scraperTestEscape(d.name)}</strong> | ${scraperTestEscape(d.quality)} → <span class="test-url">${scraperTestEscape(d.url.length > 100 ? d.url.substring(0, 100) + '...' : d.url)}</span>`);
+    document.getElementById('testRawOutput').textContent = JSON.stringify(scraperTestStreams, null, 2);
+    scraperTestRenderStreams();
   });
-  es.addEventListener('noOutput', () => testAppend('noOutput', 'No streams'));
-  es.addEventListener('done', () => {
-    es.close();
-    scraperTestSource = null;
-    testAppend('done', 'finished');
-    if (streams.length === 0) {
-      status.innerText = '❌ No streams found';
-      status.style.color = '#ef4444';
-    } else {
-      status.innerText = `✅ ${streams.length} stream(s) found`;
-      status.style.color = '#22c55e';
-    }
+  scraperTestES.addEventListener('provider-done', e => {
+    const d = JSON.parse(e.data);
+    scraperTestLog('success', `✔️ <strong>${scraperTestEscape(d.name)}</strong> done — ${d.count} streams`);
   });
-  es.onerror = (err) => {
-    testAppend('error', 'SSE connection lost');
-    es.close();
-    scraperTestSource = null;
-    status.innerText = '❌ Connection lost';
-    status.style.color = '#ef4444';
+  scraperTestES.addEventListener('provider-empty', e => {
+    const d = JSON.parse(e.data);
+    scraperTestLog('warn', `⚠️ <strong>${scraperTestEscape(d.name)}</strong> — no streams found`);
+  });
+  scraperTestES.addEventListener('provider-error', e => {
+    const d = JSON.parse(e.data);
+    scraperTestLog('error', `❌ <strong>${scraperTestEscape(d.name)}</strong> — ${scraperTestEscape(d.error)}`);
+  });
+  scraperTestES.addEventListener('done', e => {
+    const d = JSON.parse(e.data);
+    scraperTestES.close();
+    status.textContent = `Done — ${d.results.length} provider(s), ${d.totalStreams} streams`;
+  });
+  scraperTestES.onerror = () => {
+    scraperTestES.close();
+    status.textContent = 'Connection closed';
   };
 }
 
-// ── Scraper Test: Player ─────────────────────────────────────────────────
-
-let hlsTestInstance = null;
-
-function destroyTestPlayer() {
-  if (hlsTestInstance) { hlsTestInstance.destroy(); hlsTestInstance = null; }
-  const video = document.getElementById('scraperTestVideo');
-  if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
-}
-
-function addTestStream(stream, sourceId) {
-  const list = document.getElementById('scraperTestStreamList');
-  if (!list) return;
-  let label = 'hls';
-  if (stream.type === 'file' && stream.qualities && Object.keys(stream.qualities).length) {
-    label = Object.keys(stream.qualities).join(' / ');
-  } else if (stream.url) {
-    label = 'mp4';
-  }
-  if (stream.proxied) label += stream.proxyKind === 'vps' ? ' 🔒 vps-proxied' : ' 🔒 cf-proxied';
-  const row = document.createElement('div');
-  row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:6px 10px';
-  const info = document.createElement('span');
-  info.style.cssText = 'color:var(--text2,#888);overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-  info.title = stream.playlist || stream.url || '';
-  info.innerText = `[${sourceId}] ${label}`;
-  const btn = document.createElement('button');
-  btn.innerText = '▶️ Play';
-  btn.style.cssText = 'background:var(--accent,#a359ec);color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px';
-  btn.onclick = () => playTestStream(stream, sourceId);
-  row.appendChild(info);
-  row.appendChild(btn);
-  list.appendChild(row);
-}
-
-function playTestStream(stream, sourceId) {
-  const video = document.getElementById('scraperTestVideo');
-  if (!video) return;
-  destroyTestPlayer();
-  let playerUrl = '';
-  let isHlsStream = false;
-  if (stream.type === 'hls') {
-    playerUrl = stream.playlist;
-    isHlsStream = true;
-  } else if (stream.type === 'file') {
-    const qKeys = Object.keys(stream.qualities || {});
-    const priority = ['4k', '2160', '1080', '1080p', '1080P', '720', '720p', '720P', '480', '480p', '360', '360p', 'sd'];
-    let best = qKeys[0];
-    for (const q of priority) if (qKeys.includes(q)) { best = q; break; }
-    playerUrl = stream.qualities?.[best]?.url || '';
-  } else {
-    playerUrl = stream.url || '';
-  }
-  if (!playerUrl) { alert('No playable URL'); return; }
-  if (isHlsStream && window.Hls && Hls.isSupported()) {
-    const config = {};
-    if (!stream.proxied && stream.headers && Object.keys(stream.headers).length) {
-      const forbidden = ['accept-charset', 'accept-encoding', 'access-control-request-headers', 'access-control-request-method', 'connection', 'content-length', 'cookie', 'cookie2', 'date', 'dnt', 'expect', 'host', 'keep-alive', 'origin', 'referer', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'user-agent', 'via'];
-      config.xhrSetup = function (xhr) {
-        for (const [k, v] of Object.entries(stream.headers)) {
-          const kLower = k.toLowerCase();
-          if (!forbidden.includes(kLower) && !kLower.startsWith('proxy-') && !kLower.startsWith('sec-')) {
-            try { xhr.setRequestHeader(k, v); } catch (e) {}
-          }
-        }
-      };
-    }
-    hlsTestInstance = new Hls(config);
-    hlsTestInstance.loadSource(playerUrl);
-    hlsTestInstance.attachMedia(video);
-    hlsTestInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
-    hlsTestInstance.on(Hls.Events.ERROR, (evt, data) => {
-      const reason = (data.reason || data.error || data.err || '').toString().slice(0, 300);
-      const url = (data.url || data.response?.url || '').slice(0, 200);
-      testAppend('info', `HLS error: ${data.type} ${data.details} | fatal: ${data.fatal}${reason ? ` | reason: ${reason}` : ''}${url ? ` | url: ${url}` : ''}`);
-      if (data.fatal) {
-        testAppend('error', `HLS fatal: ${data.type} ${data.details}${reason ? ` - ${reason}` : ''}`);
-        hlsTestInstance.destroy();
-        hlsTestInstance = null;
-      }
-    });
-  } else if (isHlsStream && video.canPlayType('application/vnd.apple.mpegurl')) {
-    video.src = playerUrl;
-    video.play().catch(() => {});
-  } else {
-    video.src = playerUrl;
-    video.play().catch(() => {});
-  }
-  testAppend('info', `▶️ Playing [${sourceId}] ${playerUrl.slice(0, 120)}`);
-}
-
-// ── Scraper Code Editor (edits VPS files directly) ──────────────────────
-
-let scraperFilesLoaded = false;
-
-async function initScraperEditor() {
-  if (scraperFilesLoaded) return;
-  scraperFilesLoaded = true;
-  const sel = document.getElementById('scraperFileSelect');
-  if (!sel) return;
-  try {
-    const data = await api('/api/scraper-files');
-    sel.innerHTML = '';
-    for (const f of data.files) {
-      const opt = document.createElement('option');
-      opt.value = f.name;
-      opt.textContent = `${f.name} (${(f.size / 1024).toFixed(1)} KB)`;
-      sel.appendChild(opt);
-    }
-    sel.selectedIndex = 0;
-  } catch (e) {
-    sel.innerHTML = '<option value="">Failed to load file list</option>';
-  }
+function clearScraperTest() {
+  if (scraperTestES) { scraperTestES.close(); scraperTestES = null; }
+  scraperTestStreams = [];
+  document.getElementById('testEventLog').innerHTML = '';
+  document.getElementById('testRawOutput').textContent = 'Run a test to see raw output...';
+  document.getElementById('scraperTestStreamList').innerHTML = '';
+  document.getElementById('testStatus').textContent = '';
 }
 
 async function loadScraperFile() {
-  const sel = document.getElementById('scraperFileSelect');
-  const editor = document.getElementById('scraperFileEditor');
+  const name = document.getElementById('scraperFileSelect').value;
   const status = document.getElementById('scraperFileStatus');
-  if (!sel || !sel.value) return;
-  status.innerText = 'loading...';
-  status.style.color = '#f59e0b';
+  if (!name) { status.textContent = 'Select a file first'; return; }
   try {
-    const data = await api('/api/scraper-file?name=' + encodeURIComponent(sel.value));
-    editor.value = data.content;
-    status.innerText = `${data.name} (${(data.size / 1024).toFixed(1)} KB) loaded`;
-    status.style.color = '#22c55e';
-  } catch (e) {
-    status.innerText = 'Failed: ' + e.message;
-    status.style.color = '#ef4444';
-  }
+    const data = await api(`/api/scrapers/file?name=${encodeURIComponent(name)}`);
+    document.getElementById('scraperFileEditor').value = data.content;
+    status.textContent = `Loaded ${data.name} (${(data.content.length / 1024).toFixed(1)} KB)`;
+  } catch (e) { status.textContent = 'Failed: ' + e.message; }
 }
 
 async function saveScraperFile() {
-  const sel = document.getElementById('scraperFileSelect');
-  const editor = document.getElementById('scraperFileEditor');
+  const name = document.getElementById('scraperFileSelect').value;
   const status = document.getElementById('scraperFileStatus');
-  if (!sel || !sel.value) return;
-  status.innerText = 'saving...';
-  status.style.color = '#f59e0b';
+  if (!name) { status.textContent = 'Select a file first'; return; }
+  const content = document.getElementById('scraperFileEditor').value;
   try {
-    const data = await api('/api/scraper-file', {
-      method: 'POST',
-      body: JSON.stringify({ name: sel.value, content: editor.value })
-    });
-    status.innerText = data.reloaded ? `✅ Saved & hot-reloaded ${sel.value}` : `✅ Saved ${sel.value}`;
-    status.style.color = '#22c55e';
-  } catch (e) {
-    status.innerText = 'Failed: ' + e.message;
-    status.style.color = '#ef4444';
-  }
+    const data = await api('/api/scrapers/file', { method: 'POST', body: JSON.stringify({ name, content }) });
+    status.textContent = data.loaded ? `Saved & reloaded (${data.id})` : `Saved (${data.id}) — ${data.error || 'not loaded'}`;
+    loadScraperTestView();
+  } catch (e) { status.textContent = 'Failed: ' + e.message; }
 }
