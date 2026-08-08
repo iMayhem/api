@@ -140,6 +140,7 @@ function switchView(name) {
   if (name === 'info') loadInfo();
   if (name === 'player') initPlyr();
   if (name === 'scraper-test') loadScraperTestView();
+  if (name === 'git') loadGitView();
 }
 
 async function doSearch() {
@@ -1715,4 +1716,105 @@ async function saveScraperFile() {
     status.textContent = data.loaded ? `Saved & reloaded (${data.id})` : `Saved (${data.id}) — ${data.error || 'not loaded'}`;
     loadScraperTestView();
   } catch (e) { status.textContent = 'Failed: ' + e.message; }
+}
+
+// ── Backup & Restore (Git) ──────────────────────────────────────────────
+const GIT_STATUS_LABELS = { M: 'modified', D: 'deleted', A: 'added', R: 'renamed', '??': 'new file', U: 'conflict' };
+
+async function loadGitView() {
+  try {
+    const status = await api('/api/git/status');
+    const statusEl = document.getElementById('gitStatus');
+    if (!status.repo) {
+      statusEl.innerHTML = `<div class="alert" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);padding:10px 14px;border-radius:8px;color:#ef4444">❌ Backup not available: ${scraperTestEscape(status.error || 'no git repo')}</div>`;
+      return;
+    }
+    const clean = status.clean
+      ? '<span style="color:#22c55e">✅ All backed up — working tree clean</span>'
+      : `<span style="color:#f59e0b">⚠️ ${status.changed.length} uncommitted change(s)</span>`;
+    statusEl.innerHTML = `
+      <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px 16px;font-size:12px;display:flex;flex-wrap:wrap;gap:18px;align-items:center">
+        <div><strong>Branch:</strong> ${scraperTestEscape(status.branch)} ${status.unpushed ? '<span style="color:#f59e0b">(not pushed)</span>' : ''}</div>
+        <div><strong>Last backup:</strong> <code style="background:rgba(255,255,255,.07);padding:2px 6px;border-radius:4px">${scraperTestEscape(status.lastCommit.short)}</code> — ${scraperTestEscape(status.lastCommit.message)}<br><small style="color:var(--text2,#888)">${scraperTestEscape(status.lastCommit.date)} by ${scraperTestEscape(status.lastCommit.author)}</small></div>
+        <div>${clean}</div>
+      </div>`;
+    renderGitChanged(status.changed);
+    const log = await api('/api/git/log');
+    renderGitLog(log.commits, status.lastCommit.short);
+  } catch (e) {
+    document.getElementById('gitStatus').innerHTML = `<div style="color:#ef4444">Failed: ${scraperTestEscape(e.message)}</div>`;
+  }
+}
+
+function renderGitChanged(changed) {
+  const el = document.getElementById('gitChanged');
+  if (!changed.length) {
+    el.innerHTML = '<div style="color:#22c55e;padding:4px 0">Nothing to save — every change is already backed up.</div>';
+    return;
+  }
+  el.innerHTML = changed.map(c => `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        <span style="color:${c.status === 'D' ? '#ef4444' : '#f59e0b'};font-weight:600;display:inline-block;width:70px">${scraperTestEscape(GIT_STATUS_LABELS[c.status] || c.status)}</span>
+        <code style="background:rgba(255,255,255,.07);padding:2px 6px;border-radius:4px">${scraperTestEscape(c.path)}</code>
+        ${c.status === 'D' ? ' <small style="color:#ef4444">— deleted! Restore it:</small>' : ''}
+      </span>
+      <button class="btn-secondary" style="font-size:11px;padding:4px 12px;flex-shrink:0" onclick="gitRestoreFile('${scraperTestEscape(c.path).replace(/'/g, "\\'")}')">⏪ Restore file</button>
+    </div>`).join('');
+}
+
+function renderGitLog(commits, currentShort) {
+  const el = document.getElementById('gitLog');
+  if (!commits || !commits.length) { el.innerHTML = '<div style="color:var(--text2,#888);padding:6px 0">No backups yet.</div>'; return; }
+  el.innerHTML = commits.map(c => {
+    const isCurrent = c.short === currentShort;
+    return `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+      <div style="min-width:0;overflow:hidden">
+        <span style="display:inline-flex;align-items:center;gap:6px">
+          <code style="background:rgba(255,255,255,.07);padding:2px 6px;border-radius:4px">${scraperTestEscape(c.short)}</code>
+          ${isCurrent ? '<span style="background:rgba(34,197,94,.15);color:#22c55e;padding:1px 7px;border-radius:10px;font-size:10px">CURRENT</span>' : ''}
+        </span>
+        <div style="color:#e5e7eb;margin-top:2px">${scraperTestEscape(c.message)}</div>
+        <small style="color:var(--text2,#888)">${scraperTestEscape(c.date)} — ${scraperTestEscape(c.author)}</small>
+      </div>
+      ${isCurrent ? '' : `<button class="btn-secondary" style="font-size:11px;padding:4px 12px;flex-shrink:0;border-color:rgba(239,68,68,.3);color:#f59e0b" onclick="gitRestoreCommit('${scraperTestEscape(c.short)}')">⏪ Restore this version</button>`}
+    </div>`;
+  }).join('');
+}
+
+async function gitCommitNow() {
+  try {
+    const data = await api('/api/git/commit', { method: 'POST', body: JSON.stringify({ message: 'backup: manual commit from providers panel' }) });
+    alert(data.committed ? `✅ Backup saved & pushed: ${data.hash}` : (data.message || 'Done'));
+    loadGitView();
+  } catch (e) {
+    alert('❌ Failed: ' + e.message);
+  }
+}
+
+async function gitRestoreFile(relPath) {
+  if (!confirm(`Restore "${relPath}" from the last backup?\n\nCurrent changes to this file will be overwritten.`)) return;
+  try {
+    const data = await api('/api/git/restore', { method: 'POST', body: JSON.stringify({ file: relPath }) });
+    if (data.ok) {
+      alert(`✅ Restored "${data.file}"${data.reload ? (data.reload.loaded ? ` and hot-reloaded provider ${data.reload.id}` : ' (saved, but no valid getStreams export)') : ''}`);
+      loadGitView();
+    } else alert('❌ ' + (data.error || 'Failed'));
+  } catch (e) {
+    alert('❌ Failed: ' + e.message);
+  }
+}
+
+async function gitRestoreCommit(short) {
+  if (!confirm(`⚠️ Roll the ENTIRE server back to backup ${short}?\n\n1. Current uncommitted changes are auto-saved to a new backup first\n2. All files return to that backup's state\n3. The server restarts automatically (~10s)\n\nThis undoes every change made after that backup.`)) return;
+  try {
+    const data = await api('/api/git/restore', { method: 'POST', body: JSON.stringify({ commit: short }) });
+    if (data.ok) {
+      alert(`✅ Rolled back to ${data.restored}. Server is restarting — the panel will reload shortly.`);
+      setTimeout(() => location.reload(), 4000);
+    } else alert('❌ ' + (data.error || 'Failed'));
+  } catch (e) {
+    alert('❌ Failed: ' + e.message);
+  }
 }

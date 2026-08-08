@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { Readable } = require('stream');
+const { execFile } = require('child_process');
 const { HttpProxyAgent } = require('http-proxy-agent');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const analytics = require('./analytics');
@@ -1111,6 +1112,133 @@ app.post('/api/scrapers/file', async (req, res) => {
     }
   } catch (e) {
     res.json({ success: true, loaded: false, name, id, error: 'Reload failed: ' + e.message });
+  }
+});
+
+// ============ Git Backup & Restore (one-click) ============
+const GIT_DIR = path.join(__dirname, '..');
+
+function git(args) {
+  return new Promise((resolve, reject) => {
+    execFile('git', ['-C', GIT_DIR, ...args], { maxBuffer: 10 * 1024 * 1024, timeout: 60000 }, (err, stdout, stderr) => {
+      if (err) reject(new Error((stderr || '').trim() || err.message));
+      else resolve(stdout);
+    });
+  });
+}
+
+async function gitSafeCommit(message) {
+  const status = (await git(['status', '--porcelain'])).trim();
+  if (!status) return null;
+  await git(['add', '-A']);
+  await git(['commit', '-m', message]);
+  return (await git(['rev-parse', 'HEAD'])).trim();
+}
+
+function hotReloadProviderFile(relPath) {
+  const base = path.basename(relPath);
+  if (!relPath.startsWith('deobfuscated/') || !base.endsWith('.js')) return null;
+  const id = base.slice(0, -3);
+  try {
+    const filePath = path.join(PROVIDERS_DIR, base);
+    delete require.cache[require.resolve(filePath)];
+    const mod = require(filePath);
+    if (mod && typeof mod.getStreams === 'function') {
+      providers[id] = mod;
+      providerMeta[id] = { name: mod.name || id, supportedTypes: mod.supportedTypes || ['movie', 'tv'] };
+      return { id, loaded: true };
+    }
+    return { id, loaded: false };
+  } catch (e) {
+    return { id, loaded: false, error: e.message };
+  }
+}
+
+// Backup status: repo health, last commit, changed files
+app.get('/api/git/status', async (req, res) => {
+  try {
+    const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+    const lastCommit = {
+      hash: (await git(['rev-parse', 'HEAD'])).trim(),
+      short: (await git(['rev-parse', '--short', 'HEAD'])).trim(),
+      date: (await git(['show', '-s', '--format=%ci', 'HEAD'])).trim(),
+      message: (await git(['show', '-s', '--format=%s', 'HEAD'])).trim(),
+      author: (await git(['show', '-s', '--format=%an', 'HEAD'])).trim(),
+    };
+    const statusOut = await git(['status', '--porcelain']);
+    const changed = statusOut.split('\n').filter(Boolean).map(l => ({
+      status: l.slice(0, 2).trim(),
+      path: l.slice(3),
+    }));
+    let unpushed = false;
+    try {
+      const local = (await git(['rev-parse', 'HEAD'])).trim();
+      const remote = (await git(['rev-parse', '@{u}'])).trim();
+      unpushed = local !== remote;
+    } catch (e) {}
+    res.json({ repo: true, branch, lastCommit, clean: changed.length === 0, changed, unpushed });
+  } catch (e) {
+    res.json({ repo: false, error: e.message });
+  }
+});
+
+// Recent commit history (for rollback)
+app.get('/api/git/log', async (req, res) => {
+  try {
+    const out = await git(['log', '-30', "--pretty=format:%h%x1f%ci%x1f%an%x1f%s"]);
+    const commits = out.split('\n').filter(Boolean).map(line => {
+      const [short, date, author, ...rest] = line.split('\x1f');
+      return { short, date, author, message: rest.join('\x1f') };
+    });
+    res.json({ commits });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// One-click backup: commit all changes and push to GitHub
+app.post('/api/git/commit', async (req, res) => {
+  try {
+    const msg = String((req.body && req.body.message) || 'backup: manual commit from providers panel').slice(0, 200);
+    const hash = await gitSafeCommit(msg);
+    if (!hash) return res.json({ ok: true, committed: false, message: 'Nothing to commit — working tree clean' });
+    try { await git(['push', 'origin', 'HEAD']); } catch (e) {}
+    res.json({ ok: true, committed: true, hash });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Restore: one file from the last backup, or full rollback to a commit
+app.post('/api/git/restore', async (req, res) => {
+  const { commit, file } = req.body || {};
+  try {
+    if (file) {
+      const rel = String(file);
+      const full = path.join(GIT_DIR, rel);
+      if (!full.startsWith(GIT_DIR + path.sep) || rel.includes('..')) {
+        return res.status(400).json({ error: 'Invalid path' });
+      }
+      await git(['checkout', 'HEAD', '--', rel]);
+      const reload = hotReloadProviderFile(rel);
+      return res.json({ ok: true, file: rel, restored: true, reload });
+    }
+    if (commit) {
+      const ref = String(commit);
+      if (!/^[0-9a-f]{4,40}$/.test(ref)) return res.status(400).json({ error: 'Invalid commit' });
+      await git(['cat-file', '-e', ref + '^{commit}']);
+      await gitSafeCommit('auto-backup before restore');
+      await git(['reset', '--hard', ref]);
+      setTimeout(() => {
+        try {
+          execFile('pm2', ['restart', 'scraper-hub'], { detached: true, stdio: 'ignore' }).unref();
+        } catch (e) {}
+      }, 1500);
+      return res.json({ ok: true, restored: ref, restarting: true });
+    }
+    res.status(400).json({ error: 'Provide a commit or file' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

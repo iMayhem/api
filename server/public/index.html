@@ -28,6 +28,7 @@
     <button class="nav-btn" data-view="filters" onclick="switchView('filters')">🎯 Filters</button>
     <button class="nav-btn" data-view="analytics" onclick="switchView('analytics')">📊 Analytics</button>
     <button class="nav-btn" data-view="settings" onclick="switchView('settings')">🔧 Settings</button>
+    <button class="nav-btn" data-view="git" onclick="switchView('git')">🔄 Backup</button>
     <button class="nav-btn" data-view="info" onclick="switchView('info')">📡 Connection</button>
     <a href="/docs" class="nav-btn" style="display:block;text-decoration:none">📖 Docs</a>
     <a href="/embed" class="nav-btn" style="display:block;text-decoration:none">📺 Embed</a>
@@ -378,6 +379,27 @@
       </div>
       <button onclick="saveSettings()" class="btn-primary">💾 Save Settings</button>
       <span id="settingsStatus"></span>
+    </div>
+  </div>
+
+  <!-- Backup View -->
+  <div id="view-git" class="view">
+    <div class="view-header">
+      <h2>🔄 Backup &amp; Restore</h2>
+      <p>One-click backup of every VPS change to GitHub, and quick rollback if something breaks.</p>
+    </div>
+    <div id="gitStatus" style="margin-bottom:12px"></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+      <button class="btn-primary" onclick="gitCommitNow()">💾 Save backup now (commit &amp; push)</button>
+      <button class="btn-secondary" onclick="loadGitView()">🔄 Refresh</button>
+    </div>
+    <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;margin-bottom:14px;overflow:hidden">
+      <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600;font-size:13px">📝 Uncommitted changes</div>
+      <div id="gitChanged" style="padding:10px 14px;font-size:12px"></div>
+    </div>
+    <div style="background:var(--card-bg,#0f0f1b);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden">
+      <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:600;font-size:13px">📜 Backup history — click ⏪ to roll the whole server back to that backup</div>
+      <div id="gitLog" style="padding:6px 14px 12px;font-size:12px"></div>
     </div>
   </div>
 

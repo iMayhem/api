@@ -1,3 +1,9 @@
 node_modules/
 server/providers.json
 server/analytics.json
+
+# panel backups cleanup
+.embed-deploy/
+server/public/.well-known/
+sync/data/
+*.bak*
