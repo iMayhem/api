@@ -110,6 +110,40 @@ function buildProxyUrl(stream, req) {
   }
 }
 
+function buildCfProxyUrl(stream) {
+  if (!stream || typeof stream.url !== 'string') return null;
+  try {
+    // Store the real media URL in the in-memory stream store and hand the
+    // client an opaque id, so the origin URL never appears in query params.
+    const storeId = generateStreamId();
+    streamStore.set(storeId, {
+      ts: Date.now(),
+      url: stream.url,
+      headers: stream.headers || {},
+      type: stream.type || 'm3u8',
+    });
+    return `https://cf-header-proxy.moovie.fun/?id=${storeId}`;
+  } catch {
+    return null;
+  }
+}
+
+
+function proxyUrlForMode(stream, req, mode) {
+  if (!stream || typeof stream.url !== 'string') return null;
+  if (mode === '0') return null;
+  if (mode === 'vps') return buildProxyUrl(stream, req);
+  return buildCfProxyUrl(stream);
+}
+
+function wrapUrlWithProxy(url, headers, mode, req) {
+  if (!url || !url.startsWith('http')) return url;
+  if (mode === '0') return url;
+  const stream = { url, headers: headers || {} };
+  if (mode === 'vps') return buildProxyUrl(stream, req) || url;
+  return buildCfProxyUrl(stream) || url;
+}
+
 function makeStreamUrlsAbsolute(mwStream, host) {
   if (!host) return;
   const base = `https://${host}`;
@@ -164,7 +198,12 @@ function loadConfig() {
 function saveConfig() {
   const providersOnly = {};
   for (const [id, p] of Object.entries(config.providers || {})) {
-    providersOnly[id] = { enabled: p.enabled, priority: p.priority, disabledServers: p.disabledServers || [] };
+    providersOnly[id] = {
+      enabled: p.enabled,
+      priority: p.priority,
+      disabledServers: p.disabledServers || [],
+      proxyMode: p.proxyMode || '1',
+    };
   }
   fs.writeFileSync(USER_PROVIDERS_PATH, JSON.stringify(providersOnly, null, 2));
 }
@@ -320,6 +359,15 @@ function getEnabledProvidersSorted() {
 
 const app = express();
 app.use(cors());
+app.get('/api/stream', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const { id } = req.query;
+  if (!id || !streamStore.has(id)) {
+    return res.status(404).json({ error: 'Stream not found or expired' });
+  }
+  const entry = streamStore.get(id);
+  res.json({ url: entry.url, headers: entry.headers, type: entry.type });
+});
 app.use(express.json());
 
 // ============ Authentication & Locked Panel ============
@@ -590,6 +638,16 @@ app.get('/scrape', async (req, res) => {
           const pct = Math.round(85 + ((i + 1) / filtered.length) * 15);
           sse.emit('update', { id, percentage: pct, status: 'success' });
           makeStreamUrlsAbsolute(mwStream, req.headers.host);
+          const pMode = (config.providers[id] && config.providers[id].proxyMode) || req.query.proxy || '1';
+          if (pMode !== '0') {
+            if (mwStream.playlist) mwStream.playlist = wrapUrlWithProxy(mwStream.playlist, mwStream.headers, pMode, req);
+            if (mwStream.url) mwStream.url = wrapUrlWithProxy(mwStream.url, mwStream.headers, pMode, req);
+            if (mwStream.qualities) {
+              for (const q of Object.values(mwStream.qualities)) {
+                if (q && q.url) q.url = wrapUrlWithProxy(q.url, mwStream.headers, pMode, req);
+              }
+            }
+          }
           const output = { sourceId: id, stream: mwStream };
           sse.emit('completed', output);
           completedAny = true;
@@ -708,9 +766,21 @@ app.get('/api/providers', (req, res) => {
       enabled: config.providers[id]?.enabled ?? true,
       priority: config.providers[id]?.priority ?? 999,
       disabledServers: config.providers[id]?.disabledServers || [],
+      proxyMode: config.providers[id]?.proxyMode || '1',
     };
   }
   res.json(result);
+});
+
+// Set per-provider proxy mode: '1' = Cloudflare, 'vps' = VPS, '0' = Direct
+app.post('/api/providers/:id/proxy-mode', (req, res) => {
+  const { id } = req.params;
+  const { mode } = req.body;
+  if (!config.providers[id]) return res.status(404).json({ error: 'Provider not found' });
+  if (!['0', '1', 'vps'].includes(mode)) return res.status(400).json({ error: 'Invalid mode' });
+  config.providers[id].proxyMode = mode;
+  saveConfig();
+  res.json({ id, proxyMode: mode });
 });
 
 // Bulk reorder providers — atomic, single request
@@ -893,7 +963,14 @@ app.get('/api/search', async (req, res) => {
               headers: stream.headers || {},
               type: stream.type,
             });
-            stream.proxyUrl = `/proxy?id=${storeId}`;
+            const proxyMode = (config.providers[id] && config.providers[id].proxyMode) || req.query.proxy || '1';
+            if (proxyMode === '0') {
+              stream.proxyUrl = '';
+            } else if (proxyMode === 'vps') {
+              stream.proxyUrl = `/proxy?id=${storeId}`;
+            } else {
+              stream.proxyUrl = buildCfProxyUrl(stream) || `/proxy?id=${storeId}`;
+            }
           }
           results.push({
             provider: id,
@@ -984,7 +1061,7 @@ app.get('/api/search/stream', async (req, res) => {
           }
           const realUrl = toProxyUrl(stream.url, stream.headers, stream.type);
           if (realUrl && realUrl !== stream.url) stream.url = realUrl;
-          const proxyUrl = buildProxyUrl(stream, req);
+          const proxyUrl = proxyUrlForMode(stream, req, (config.providers[id] && config.providers[id].proxyMode) || req.query.proxy || '1');
           if (proxyUrl) stream.proxyUrl = proxyUrl;
           emit('stream', { provider: id, name, quality: stream.quality || 'Auto', url: stream.url, proxyUrl: stream.proxyUrl || '', type: stream.type, title: stream.title || '' });
         }
