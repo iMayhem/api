@@ -174,6 +174,10 @@ async function doSearch() {
         });
       }
     }
+    // Highest quality first so autoplay and fallbacks try the best rendition first
+    allStreams.sort(function(a, b) {
+      return rankQuality(b.quality || '') - rankQuality(a.quality || '');
+    });
 
     if (data.results.length === 0) {
       container.innerHTML = '<div class="no-results">No streams found. Try a different ID or media type.<br>' +
@@ -1350,6 +1354,7 @@ function startTest() {
   // ── Smart ping state ──
   let pingPromises = [];
   let firstStreamPlayed = false;
+  let firstPlayDebounce = null;
 
   function playNow(stream) {
     firstStreamPlayed = true;
@@ -1394,8 +1399,20 @@ function startTest() {
     if (smartPing) {
       pingPromises.push(doPing());
     } else if (!firstStreamPlayed) {
-      playNow(stream);
-      appendTestLog('success', '⚡ Auto-played <strong>' + data.name + '</strong> (' + data.quality + ') immediately');
+      // Wait a moment to collect more streams, then auto-play the highest quality one
+      if (!firstPlayDebounce) {
+        firstPlayDebounce = setTimeout(function() {
+          firstPlayDebounce = null;
+          if (firstStreamPlayed || allStreams.length === 0) return;
+          const sorted = allStreams.slice().sort(function(a, b) {
+            return rankQuality(b.quality || '') - rankQuality(a.quality || '');
+          });
+          const best = sorted[0];
+          firstStreamPlayed = true;
+          playNow(best);
+          appendTestLog('success', '⚡ Auto-played highest quality <strong>' + (best.name || best.provider || '') + '</strong> (' + (best.quality || 'Auto') + ')');
+        }, 1500);
+      }
       pingPromises.push(doPing()); // background ping for display
     } else {
       pingPromises.push(doPing()); // background ping for display

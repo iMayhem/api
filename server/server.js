@@ -9,14 +9,64 @@ const { Readable } = require('stream');
 const { HttpProxyAgent } = require('http-proxy-agent');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const analytics = require('./analytics');
+const teerth = require('./teerth');
 const { setupWebSocket } = require('./watch-together');
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 const USER_PROVIDERS_PATH = path.join(__dirname, 'providers.json');
 const PROVIDERS_DIR = path.join(__dirname, '..', 'deobfuscated');
 const MANIFEST_PATH = path.join(__dirname, '..', 'manifest.json');
+const os = require('os');
 
 const PORT = parseInt(process.env.PORT, 10) || null;
+
+// ---- Resource guards: cap concurrent scrapes and watch memory ---- 
+const MAX_CONCURRENT_SCRAPES = 2;
+let activeScrapes = 0;
+let scrapeWaiters = [];
+
+async function acquireScrapeSlot(timeoutMs) {
+  if (activeScrapes < MAX_CONCURRENT_SCRAPES) {
+    activeScrapes++;
+    return;
+  }
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const idx = scrapeWaiters.indexOf(waiter);
+      if (idx !== -1) scrapeWaiters.splice(idx, 1);
+      reject(new Error('Server busy, try again'));
+    }, timeoutMs || 30000);
+    const waiter = () => { clearTimeout(timer); resolve(); };
+    scrapeWaiters.push(waiter);
+  });
+  activeScrapes++;
+}
+
+function releaseScrapeSlot() {
+  activeScrapes = Math.max(0, activeScrapes - 1);
+  const next = scrapeWaiters.shift();
+  if (next) next();
+}
+
+// Memory watchdog: clears caches when RSS crosses a high-water mark
+const MEM_WATCH_INTERVAL = 15000;
+const MEM_WATCH_FRACTION = 0.55; // of total system RAM
+setInterval(() => {
+  try {
+    const total = os.totalmem();
+    const rss = process.memoryUsage().rss;
+    const usedFrac = rss / total;
+    if (usedFrac > MEM_WATCH_FRACTION) {
+      const now = Date.now();
+      let cleared = 0;
+      for (const [key, entry] of streamStore) {
+        if (now - entry.ts > 60000) { streamStore.delete(key); cleared++; }
+      }
+      console.warn(`[watchdog] RSS ${(rss / 1048576).toFixed(0)}MB (${(usedFrac * 100).toFixed(0)}% of ${(total / 1048576).toFixed(0)}MB) — cleared ${cleared} stale streams`);
+      if (global.gc) { global.gc(); }
+    }
+  } catch (e) {}
+}, MEM_WATCH_INTERVAL);
 
 let config = loadConfig();
 let providers = {};
@@ -29,6 +79,20 @@ function generateStreamId() {
 }
 
 function toProxyUrl(url, headers, type) {
+  if (typeof url !== 'string') return url;
+  // Unwrap the legacy cf-header-proxy.moovie.fun wrapper (dead). The real media
+  // URL lives in its `url` query param; if that is a dl.php "Link Generator" page,
+  // the actual video URL is in its `link` query param. No proxying is used.
+  if (url.includes('cf-header-proxy.moovie.fun')) {
+    try {
+      const target = new URL(url).searchParams.get('url');
+      if (target) {
+        const inner = new URL(target);
+        const link = inner.searchParams.get('link');
+        return link || target;
+      }
+    } catch {}
+  }
   return url;
 }
 
@@ -340,22 +404,23 @@ function parseQuality(q) {
   if (!q) return -1;
   q = q.toLowerCase().replace(/p$/, '');
   if (q === 'auto' || q === 'adaptive' || q === 'multi') return -1;
+  if (q === '4k' || q === 'uhd' || q === '2160') return 2160;
   const n = parseInt(q);
   return isNaN(n) ? -1 : n;
 }
 
+function streamEffectiveQuality(s) {
+  const explicit = parseQuality(s && s.quality);
+  if (explicit > 0) return explicit;
+  if (s && s.qualities && typeof s.qualities === 'object') {
+    const keys = Object.keys(s.qualities).map(parseQuality).filter(v => v > 0);
+    return keys.length ? Math.max(...keys) : -1;
+  }
+  return explicit;
+}
+
 function sortStreamsByQuality(streams) {
-  return (streams || []).sort((a, b) => {
-    const aQ = parseQuality(a.quality);
-    const bQ = parseQuality(b.quality);
-    if (aQ !== bQ) return bQ - aQ; // desc
-    // Fall back: check qualities object
-    const aKeys = a.qualities ? Object.keys(a.qualities).map(parseQuality).filter(v => v > 0) : [];
-    const bKeys = b.qualities ? Object.keys(b.qualities).map(parseQuality).filter(v => v > 0) : [];
-    const aBest = aKeys.length ? Math.max(...aKeys) : -1;
-    const bBest = bKeys.length ? Math.max(...bKeys) : -1;
-    return bBest - aBest;
-  });
+  return (streams || []).sort((a, b) => streamEffectiveQuality(b) - streamEffectiveQuality(a));
 }
 
 // Convert a scraper stream to movie-web Stream format
@@ -367,7 +432,10 @@ function scraperStreamToMwStream(stream, sourceId) {
   // Handle multi-quality streams (object with quality keys)
   if (stream.qualities && typeof stream.qualities === 'object') {
     const qualities = {};
-    for (const [q, entry] of Object.entries(stream.qualities)) {
+    // Highest quality first so players try the best rendition first
+    const qualityKeys = Object.keys(stream.qualities).sort((a, b) => parseQuality(b) - parseQuality(a));
+    for (const q of qualityKeys) {
+      const entry = stream.qualities[q];
       if (!entry || !entry.url) continue;
       if (!isStreamableUrl(entry.url)) {
         console.log(`[scraperStreamToMwStream] Skipping non-streamable quality "${q}": ${entry.url.slice(0, 80)}`);
@@ -461,8 +529,13 @@ function sendSSE(req, res) {
 app.get('/scrape', async (req, res) => {
   const { type, tmdbId, season, episode, seasonNumber, episodeNumber } = req.query;
   if (!tmdbId) return res.status(400).json({ error: 'tmdbId required' });
+  try {
+    await acquireScrapeSlot();
+  } catch (e) {
+    return res.status(429).json({ error: e.message });
+  }
   const sse = sendSSE(req, res);
-  if (sse.cancelled()) return;
+  if (sse.cancelled()) { releaseScrapeSlot(); return; }
 
   const enabledProviders = getEnabledProvidersSorted();
   const sourceIds = enabledProviders.map(([id]) => id);
@@ -471,7 +544,7 @@ app.get('/scrape', async (req, res) => {
   sse.emit('init', { sourceIds });
 
   for (const [id, pConfig] of enabledProviders) {
-    if (sse.cancelled()) return;
+    if (sse.cancelled()) { releaseScrapeSlot(); return; }
     try {
       sse.emit('start', id);
 
@@ -489,7 +562,7 @@ app.get('/scrape', async (req, res) => {
       const eNum = episode || episodeNumber || null;
       const streams = await mod.getStreams(tmdbId, mediaType, sNum, eNum);
       clearInterval(progressTimer);
-      if (sse.cancelled()) return;
+      if (sse.cancelled()) { releaseScrapeSlot(); return; }
 
       const filtered = sortStreamsByQuality(filterStreams(streams || [], id));
 
@@ -523,19 +596,26 @@ app.get('/scrape', async (req, res) => {
     sse.emit('noOutput', '');
   }
   res.end();
+  releaseScrapeSlot();
 });
 
 // GET /scrape/source - SSE endpoint for a single source
 app.get('/scrape/source', async (req, res) => {
   const { id, type, tmdbId, season, episode, seasonNumber, episodeNumber } = req.query;
   if (!id || !tmdbId) return res.status(400).json({ error: 'id and tmdbId required' });
+  try {
+    await acquireScrapeSlot();
+  } catch (e) {
+    return res.status(429).json({ error: e.message });
+  }
   const sse = sendSSE(req, res);
-  if (sse.cancelled()) return;
+  if (sse.cancelled()) { releaseScrapeSlot(); return; }
 
   const mod = providers[id];
   if (!mod) {
     sse.emit('error', { name: 'NotFoundError', message: `Source ${id} not found` });
     res.end();
+    releaseScrapeSlot();
     return;
   }
 
@@ -550,12 +630,12 @@ app.get('/scrape/source', async (req, res) => {
       sse.emit('update', { id, percentage: progress, status: 'pending' });
     }, 400);
 
-    const mediaType = type || 'movie';
+    const mediaType = ['show', 'series'].includes(String(type || '').toLowerCase()) ? 'tv' : (type || 'movie');
     const sNum = season || seasonNumber || null;
     const eNum = episode || episodeNumber || null;
     const streams = await mod.getStreams(tmdbId, mediaType, sNum, eNum);
     clearInterval(progressTimer);
-    if (sse.cancelled()) return;
+    if (sse.cancelled()) { releaseScrapeSlot(); return; }
 
     const filtered = sortStreamsByQuality(filterStreams(streams || [], id));
 
@@ -586,6 +666,7 @@ app.get('/scrape/source', async (req, res) => {
   // after a successful completed event.
   if (!sse.cancelled()) sse.emit('done', '');
   res.end();
+  releaseScrapeSlot();
 });
 
 // GET /scrape/embed - SSE endpoint for a single embed (not supported by these scrapers)
@@ -600,6 +681,18 @@ app.get('/scrape/embed', async (req, res) => {
   res.end();
 });
 
+// Teerth assets: CORS + no-cache so any website/embed can load the SDK
+app.use('/teerth', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Cache-Control', 'no-store');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+});
+app.get('/teerth', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'teerth.html'));
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ============ API Routes ============
@@ -779,7 +872,8 @@ app.get('/api/search', async (req, res) => {
       const mod = providers[id];
       const streams = await mod.getStreams(tmdbId || query, type, season || null, episode || null, query);
       if (streams && streams.length > 0) {
-        const filtered = filterStreams(streams, id);
+        // Highest quality first so the first stream auto-played is the best one
+        const filtered = sortStreamsByQuality(filterStreams(streams, id));
         if (filtered.length > 0) {
           const sliced = filtered.slice(0, config.maxResultsPerProvider || 20);
           for (const stream of sliced) {
@@ -1057,6 +1151,30 @@ function bodyStreamFromReader(reader, firstChunk) {
   });
 }
 
+// Stream already-peeked chunks first, then keep reading from the reader — avoids buffering the whole body
+function streamWithPeek(peekChunks, reader) {
+  const { PassThrough } = require('stream');
+  const pt = new PassThrough();
+  (async () => {
+    try {
+      for (const c of peekChunks) {
+        if (pt.destroyed) { try { await reader.cancel(); } catch {} return; }
+        pt.write(c);
+      }
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (pt.destroyed) { try { await reader.cancel(); } catch {} return; }
+        pt.write(value);
+      }
+      pt.end();
+    } catch (e) {
+      pt.destroy(e);
+    }
+  })();
+  return pt;
+}
+
 // Proxy endpoint - supports both ID-based lookup and inline URL+headers
 app.options('/proxy', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -1141,10 +1259,19 @@ app.get('/proxy', async (req, res) => {
 
     if (firstHead.startsWith('#EXTM3U') && targetUrl) {
       const allChunks = [first.value];
-      while (true) {
+      let totalBytes = first.value.length;
+      while (totalBytes < 5242880) { // cap playlist buffering at 5MB
         const { done, value } = await reader.read();
         if (done) break;
         allChunks.push(value);
+        totalBytes += value.length;
+      }
+      if (totalBytes >= 5242880) {
+        const nodeStream = bodyStreamFromReader(reader, first.value);
+        req.on('close', () => nodeStream.destroy());
+        res.setHeader('Content-Type', contentType || 'application/vnd.apple.mpegurl');
+        nodeStream.pipe(res);
+        return;
       }
       const bodyText = Buffer.concat(allChunks).toString('utf8');
       try {
@@ -1165,10 +1292,12 @@ app.get('/proxy', async (req, res) => {
       if (ct.includes('json')) {
         // JSON content should always pass through (needed for CORS proxy use cases)
         const allChunks = [first.value];
-        while (true) {
+        let totalBytes = first.value.length;
+        while (totalBytes < 5242880) { // cap JSON buffering at 5MB
           const { done, value } = await reader.read();
           if (done) break;
           allChunks.push(value);
+          totalBytes += value.length;
         }
         const body = Buffer.concat(allChunks);
         res.setHeader('Content-Type', ct);
@@ -1177,37 +1306,41 @@ app.get('/proxy', async (req, res) => {
         return;
       }
       if (ct.includes('html')) {
-        const allChunks = [first.value];
-        while (true) {
+        // Peek at the start of the body to classify it without buffering the whole file
+        const peekChunks = [first.value];
+        let peekedBytes = first.value.length;
+        while (peekedBytes < 65536) { // peek up to 64KB
           const { done, value } = await reader.read();
           if (done) break;
-          allChunks.push(value);
+          peekChunks.push(value);
+          peekedBytes += value.length;
         }
-        const body = Buffer.concat(allChunks);
+        const peek = Buffer.concat(peekChunks);
         // Check for mislabeled video (CDNs serve TS/MP4 with text/html Content-Type)
-        const firstBytes = body.slice(0, 16);
-        const isMpegTs = firstBytes.length > 0 && firstBytes[0] === 0x47;
-        const isMp4 = firstBytes.slice(4, 8).toString() === 'ftyp' || firstBytes.slice(0, 4).toString() === 'ftyp';
-        const isWebm = firstBytes.slice(0, 4).toString() === '\x1a\x45\xdf\xa3';
+        const isMpegTs = peek.length > 0 && peek[0] === 0x47;
+        const isMp4 = peek.slice(4, 8).toString() === 'ftyp' || peek.slice(0, 4).toString() === 'ftyp';
+        const isWebm = peek.slice(0, 4).toString() === '\x1a\x45\xdf\xa3';
         if (isMpegTs || isMp4 || isWebm) {
           const mime = isMpegTs ? 'video/mp2t' : isMp4 ? 'video/mp4' : 'video/webm';
           res.setHeader('Content-Type', mime);
-          res.setHeader('Content-Length', body.length);
-          res.end(body);
+          const nodeStream = streamWithPeek(peekChunks, reader);
+          req.on('close', () => nodeStream.destroy());
+          nodeStream.pipe(res);
           return;
         }
         // Check if it's actual HTML page content (not mislabeled binary)
-        const textStart = body.toString('utf8', 0, Math.min(body.length, 100)).trim();
+        const textStart = peek.toString('utf8', 0, Math.min(peek.length, 100)).trim();
         if (textStart.startsWith('<!') || textStart.startsWith('<html') || textStart.startsWith('<?xml')) {
-          const preview = body.toString('utf8', 0, Math.min(body.length, 300));
+          const preview = peek.toString('utf8', 0, Math.min(peek.length, 300));
           console.error(`Proxy: non-video content "${ct}" for ${targetUrl}: ${preview}`);
           if (!res.headersSent) res.status(502).send(`Bad content type: ${ct}`);
           return;
         }
         // Not actual HTML — likely mislabeled binary, pass through
         res.setHeader('Content-Type', ct);
-        res.setHeader('Content-Length', body.length);
-        res.end(body);
+        const nodeStream = streamWithPeek(peekChunks, reader);
+        req.on('close', () => nodeStream.destroy());
+        nodeStream.pipe(res);
         return;
       }
     // Pass through all other content types (video, image, octet-stream, etc.)
@@ -1382,6 +1515,16 @@ app.get('/api/analytics/stats', analytics.handleStats);
 app.get('/api/analytics/events', analytics.handleEventsList);
 app.get('/api/analytics/realtime', analytics.handleRealtime);
 
+// ── Teerth — Umami-style website analytics ─────────────────────────
+app.post('/teerth/collect', teerth.handleCollect);
+app.get('/teerth/collect', teerth.handleCollectGet);
+app.post('/teerth/ping', teerth.handlePing);
+app.get('/teerth/realtime', teerth.handleRealtime);
+app.get('/teerth/api/realtime', teerth.handleApiRealtime);
+app.get('/teerth/api/sites', teerth.handleSites);
+app.get('/teerth/api/overview', teerth.handleOverview);
+app.get('/teerth/api/events', teerth.handleApiEvents);
+
 // Documentation page
 app.get('/docs', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'docs.html'));
@@ -1397,6 +1540,7 @@ async function start() {
   await loadProviders();
   initProviderConfig();
   analytics.init();
+  teerth.init();
   const port = PORT || config.port;
   console.log(`Loaded ${Object.keys(providers).length} providers`);
 

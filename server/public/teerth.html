@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teerth — Analytics</title>
+<link rel="icon" href="/favicon.svg">
+<style>
+  :root {
+    --bg: #0a0e17; --panel: rgba(255,255,255,0.045); --panel2: rgba(255,255,255,0.06);
+    --border: rgba(255,255,255,0.09); --txt: #e8ecf4; --muted: #8b93a7;
+    --acc: #6366f1; --acc2: #22d3ee; --green: #34d399; --red: #f87171; --amber: #fbbf24;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--txt); font: 14px/1.5 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+  a { color: var(--acc2); text-decoration: none; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 22px 20px 60px; }
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
+  .logo { font-size: 22px; font-weight: 800; letter-spacing: 0.5px; }
+  .logo span { color: var(--acc2); }
+  .spacer { flex: 1; }
+  .live-pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 13px; border-radius: 999px; background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.35); font-size: 13px; }
+  .live-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: blink 1.6s infinite; }
+  @keyframes blink { 50% { opacity: .25; } }
+  select, button { background: var(--panel); color: var(--txt); border: 1px solid var(--border); border-radius: 9px; padding: 7px 12px; font-size: 13px; cursor: pointer; }
+  select:focus, button:focus { outline: none; border-color: var(--acc); }
+  .range-btn { padding: 6px 11px; }
+  .range-btn.active { background: var(--acc); border-color: var(--acc); color: #fff; font-weight: 600; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 15px 17px; }
+  .card .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .card .v { font-size: 27px; font-weight: 700; margin-top: 4px; }
+  .card .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+  .panel h3 { font-size: 14px; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .chart { display: flex; align-items: flex-end; gap: 3px; height: 150px; padding-top: 8px; }
+  .chart .col { flex: 1; display: flex; align-items: flex-end; gap: 2px; height: 100%; }
+  .chart .bar { flex: 1; border-radius: 3px 3px 0 0; min-height: 1px; }
+  .bar.v { background: var(--acc); opacity: .85; }
+  .bar.u { background: var(--acc2); opacity: .75; }
+  .chart-x { display: flex; justify-content: space-between; color: var(--muted); font-size: 10.5px; margin-top: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .6px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 7px 8px; border-bottom: 1px solid rgba(255,255,255,0.045); }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; }
+  .bar-cell { width: 40%; }
+  .bar-track { background: rgba(255,255,255,0.07); height: 6px; border-radius: 4px; overflow: hidden; }
+  .bar-fill { height: 100%; background: linear-gradient(90deg, var(--acc), var(--acc2)); border-radius: 4px; }
+  .flag { margin-right: 7px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+  .realtime-list { max-height: 340px; overflow-y: auto; }
+  .visit-item { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 13px; }
+  .visit-item:last-child { border-bottom: none; }
+  .visit-path { color: var(--acc2); word-break: break-all; flex: 1; min-width: 0; }
+  .chip { background: var(--panel2); border: 1px solid var(--border); padding: 1px 8px; border-radius: 999px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .muted { color: var(--muted); }
+  .code { background: #0d1220; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font: 12px/1.6 'Consolas', monospace; color: #9bd6d9; white-space: pre-wrap; word-break: break-all; position: relative; }
+  .copy { position: absolute; top: 8px; right: 8px; padding: 4px 10px; border-radius: 7px; background: var(--panel2); }
+  .live-sites { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+  .live-site { display: flex; align-items: center; gap: 10px; background: var(--panel2); border: 1px solid var(--border); border-radius: 11px; padding: 10px 13px; }
+  .live-site .ls-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .live-site .ls-count { font-size: 18px; font-weight: 800; color: var(--green); display: flex; align-items: center; gap: 6px; }
+  .live-site .ls-count .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: blink 1.6s infinite; }
+  .live-site .ls-zero { opacity: .55; }
+  .live-site .ls-zero .ls-count, .live-site .ls-zero .ls-count .dot { color: var(--muted); background: var(--muted); animation: none; }
+  .site-live-badge { color: var(--green); font-weight: 700; }
+  .site-live-badge.zero { color: var(--muted); }
+  option .live-opt { margin-left: 8px; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--green); color: #06281b; font-weight: 700; padding: 8px 18px; border-radius: 999px; opacity: 0; pointer-events: none; transition: opacity .3s; }
+  .empty { color: var(--muted); text-align: center; padding: 22px; }
+  .navback { display: inline-block; margin-bottom: 14px; color: var(--muted); font-size: 13px; }
+  .navback:hover { color: var(--acc2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="navback" href="/">⬅ Back to Providers Panel</a>
+  <header>
+    <div class="logo">🛰️ Teerth <span>Analytics</span></div>
+    <span class="live-pill"><span class="dot"></span><span id="liveCount">0</span> active now</span>
+    <span class="spacer"></span>
+    <select id="siteSel" onchange="changeSite()"><option value="">Loading sites…</option></select>
+    <span id="rangeBtns">
+      <button class="range-btn" data-r="today" onclick="setRange('today')">Today</button>
+      <button class="range-btn active" data-r="24h" onclick="setRange('24h')">24h</button>
+      <button class="range-btn" data-r="7d" onclick="setRange('7d')">7d</button>
+      <button class="range-btn" data-r="30d" onclick="setRange('30d')">30d</button>
+    </span>
+  </header>
+
+  <div class="cards">
+    <div class="card"><div class="k">Visitors</div><div class="v" id="cVis">-</div><div class="sub">unique sessions</div></div>
+    <div class="card"><div class="k">Pageviews</div><div class="v" id="cPv">-</div><div class="sub">hits in period</div></div>
+    <div class="card"><div class="k">Avg Duration</div><div class="v" id="cDur">-</div><div class="sub">per session</div></div>
+    <div class="card"><div class="k">Bounce Rate</div><div class="v" id="cBnc">-</div><div class="sub">single-page sessions</div></div>
+  </div>
+
+  <div class="panel" id="liveSitesPanel">
+    <h3>🟢 Live users — every website</h3>
+    <div class="live-sites" id="liveSites"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel" style="grid-column:1/-1">
+      <h3>📈 Visitors &amp; Pageviews</h3>
+      <div class="chart" id="chart"></div>
+      <div class="chart-x"><span id="chartL"></span><span id="chartR"></span></div>
+    </div>
+
+    <div class="panel">
+      <h3>🔴 Live Sessions <span class="chip" id="rtSite"></span></h3>
+      <div class="realtime-list" id="rtList"><div class="empty">No live visitors right now</div></div>
+    </div>
+
+    <div>
+      <div class="panel"><h3>🏠 Top Pages</h3><table id="tPages"><tbody></tbody></table></div>
+      <div class="panel"><h3>🔗 Referrers</h3><table id="tRefs"><tbody></tbody></table></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel"><h3>🌍 Countries</h3><table id="tCountries"><tbody></tbody></table></div>
+    <div class="panel"><h3>🏙️ Cities</h3><table id="tCities"><tbody></tbody></table></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel"><h3>🧭 Devices</h3><table id="tDevices"><tbody></tbody></table></div>
+    <div class="panel"><h3>💻 Browsers / OS</h3><table id="tBrowsers"><tbody></tbody></table></div>
+  </div>
+
+  <div class="panel">
+    <h3>🧩 Track custom events <span class="chip">window.teerth.track('play', {…})</span></h3>
+    <table id="tEvents"><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h3>🚀 SDK — add to any website / embed</h3>
+    <div class="code" id="sdkCode"></div>
+  </div>
+</div>
+<div id="toast">Copied!</div>
+
+<script>
+(function () {
+  'use strict';
+  var state = { site: null, range: '24h', data: null, es: null };
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function fmtDur(ms) {
+    if (!ms) return '0s';
+    if (ms < 60000) return (ms / 1000).toFixed(0) + 's';
+    if (ms < 3600000) return Math.round(ms / 60000) + 'm';
+    return (ms / 3600000).toFixed(1) + 'h';
+  }
+  function fmtNum(n) { return (n || 0).toLocaleString('en-US'); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[<>&"]/g, function (c) { return { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]; });
+  }
+  function table(tbody, rows, cols) {
+    tbody = $(tbody).querySelector('tbody');
+    if (!rows || !rows.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="empty">No data yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(function (r) {
+      var cells = cols(r).map(function (c, i) { return '<td' + (i ? ' class="num"' : '') + '>' + c + '</td>'; }).join('');
+      return '<tr>' + cells + '</tr>';
+    }).join('');
+  }
+  function barCell(v, max) {
+    var pct = max ? Math.max(2, Math.round((v / max) * 100)) : 0;
+    return '<td class="bar-cell"><div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div></td>';
+  }
+
+  function loadSites() {
+    fetch('/teerth/api/sites').then(function (r) { return r.json(); }).then(function (d) {
+      var sel = $('siteSel');
+      var sites = d.sites || [];
+      if (!sites.length) { sel.innerHTML = '<option value="">No sites yet — drop the SDK on a page</option>'; return; }
+      sel.innerHTML = '<option value="">All sites (' + (d.totalActive || 0) + ' live)</option>' + sites.map(function (s) {
+        var live = s.activeNow > 0 ? ' <span class="site-live-badge">● ' + s.activeNow + ' live</span>' : ' <span class="site-live-badge zero">● 0 live</span>';
+        return '<option value="' + esc(s.site) + '">' + esc(s.site) + ' (' + fmtNum(s.pageviews) + ')' + live + '</option>';
+      }).join('');
+      sel.value = state.site || '';
+      if (sites.length === 1 && !state.site) { state.site = sites[0].site; sel.value = state.site; }
+      renderLiveSites(d.totalActive || 0);
+      if ($('liveSitesPanel').style.display !== 'none') loadOverview();
+    }).catch(function () { });
+  }
+
+  function renderLiveSites(totalActive) {
+    var el = $('liveSites');
+    if (!state.liveBySite) { el.innerHTML = ''; return; }
+    var entries = Object.entries(state.liveBySite).sort(function (a, b) { return b[1] - a[1]; });
+    if (!entries.length) {
+      $('liveSitesPanel').style.display = 'none';
+      return;
+    }
+    $('liveSitesPanel').style.display = '';
+    el.innerHTML = entries.map(function (e) {
+      var live = e[1] > 0;
+      return '<div class="live-site' + (live ? '' : ' ls-zero') + '"><span class="ls-name">' + esc(e[0]) + '</span>' +
+        '<span class="ls-count"><span class="dot"></span>' + e[1] + '</span></div>';
+    }).join('');
+  }
+
+  function setRange(r) {
+    state.range = r;
+    document.querySelectorAll('.range-btn').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-r') === r); });
+    loadOverview();
+  }
+
+  function changeSite() { state.site = $('siteSel').value || null; loadOverview(); openRealtime(); }
+
+  function loadOverview() {
+    var q = 'range=' + state.range;
+    if (state.site) q += '&site=' + encodeURIComponent(state.site);
+    fetch('/teerth/api/overview?' + q).then(function (r) { return r.json(); }).then(function (d) {
+      state.data = d;
+      render(d);
+      $('sdkCode').innerHTML = '&lt;script defer src="' + location.origin + '/teerth/t.js" data-site="' + esc(state.site || 'example.com') + '"&gt;&lt;/script&gt;';
+    }).catch(function () { });
+  }
+
+  function render(d) {
+    var t = d.totals || {};
+    if (!state.site) hideSiteSpecific();
+    $('cVis').textContent = fmtNum(t.visits);
+    $('cPv').textContent = fmtNum(t.pageviews);
+    $('cDur').textContent = fmtDur(t.avgDuration);
+    $('cBnc').textContent = (t.bounce == null ? '-' : t.bounce + '%');
+    $('liveCount').textContent = t.activeNow || 0;
+
+    drawChart(d.series || []);
+
+    table('tPages', d.top.pages, function (r) { return [esc(r.name), barCell(r.value, d.top.pages[0].value), fmtNum(r.value)]; });
+    table('tRefs', d.top.referrers, function (r) { return [esc(r.name), barCell(r.value, d.top.referrers[0].value), fmtNum(r.value)]; });
+    table('tCountries', d.top.countries, function (r) { return ['<span class="flag">' + (r.flag || '🌐') + '</span>' + esc(r.name), barCell(r.value, d.top.countries[0].value), fmtNum(r.value)]; });
+    table('tCities', d.top.cities, function (r) { return [esc(r.name), barCell(r.value, d.top.cities[0].value), fmtNum(r.value)]; });
+    table('tDevices', d.top.devices, function (r) { return [esc(r.name), barCell(r.value, d.top.devices[0].value), fmtNum(r.value)]; });
+    table('tBrowsers', d.top.browsers, function (r) { return [esc(r.name), barCell(r.value, d.top.browsers[0].value), fmtNum(r.value)]; });
+
+    var evs = Object.entries(d.eventsTop || {}).map(function (e) { return { name: e[0], value: e[1] }; });
+    table('tEvents', evs, function (r) { return [esc(r.name), barCell(r.value, evs[0] && evs[0].value), fmtNum(r.value)]; });
+  }
+
+  function hideSiteSpecific() {
+    ['tPages', 'tRefs', 'tCountries', 'tCities', 'tEvents'].forEach(function (id) {
+      $(id).querySelector('tbody').innerHTML = '<tr><td colspan="3" class="empty">Choose a site to see breakdown</td></tr>';
+    });
+  }
+
+  function drawChart(series) {
+    var el = $('chart');
+    if (!series.length) { el.innerHTML = '<div class="empty" style="width:100%">No data in this period</div>'; return; }
+    var max = Math.max.apply(null, series.map(function (s) { return Math.max(s.views, s.visitors); })) || 1;
+    var html = series.map(function (s) {
+      var v = Math.max(1.5, (s.views / max) * 100);
+      var u = Math.max(1.5, (s.visitors / max) * 100);
+      return '<div class="col"><div class="bar u" style="height:' + u + '%"></div><div class="bar v" style="height:' + v + '%"></div></div>';
+    }).join('');
+    el.innerHTML = html;
+    var fmt = new Intl.DateTimeFormat('en-US', series.length > 48 ? { weekday: 'short' } : { hour: '2-digit' });
+    $('chartL').textContent = fmt.format(new Date(series[0].t));
+    $('chartR').textContent = fmt.format(new Date(series[series.length - 1].t));
+  }
+
+  var lastRt = null;
+  function renderRealtime(sessions) {
+    var list = sessions || [];
+    if (!state.site) list = list;
+    else list = list.filter(function (s) { return s.site === state.site; });
+    $('rtSite').textContent = state.site || 'all sites';
+    $('liveCount').textContent = list.length;
+    var el = $('rtList');
+    if (!list.length) { el.innerHTML = '<div class="empty">No live visitors right now</div>'; return; }
+    el.innerHTML = list.map(function (s) {
+      var flag = s.country && s.country.length === 2 ? String.fromCodePoint(127397 + s.country.charCodeAt(0), 127397 + s.country.charCodeAt(1)) : '🌐';
+      var where = (s.city || s.region || s.country || 'Unknown');
+      var ago = Math.max(0, Math.round((Date.now() - s.last) / 1000));
+      return '<div class="visit-item"><span class="flag">' + flag + '</span>' +
+        '<span class="visit-path">' + esc(s.site) + '' + esc(s.path) + '</span>' +
+        '<span class="chip">' + esc(where) + '</span>' +
+        '<span class="chip">' + esc(s.device || '') + '</span>' +
+        '<span class="chip">' + ago + 's</span></div>';
+    }).join('');
+  }
+
+  function openRealtime() {
+    if (state.es) state.es.close();
+    var es = new EventSource('/teerth/realtime');
+    state.es = es;
+    es.onmessage = function (e) {
+      try {
+        var d = JSON.parse(e.data);
+        if (d.sessions) {
+          renderRealtime(d.sessions);
+          var bySite = {};
+          d.sessions.forEach(function (s) { bySite[s.site] = (bySite[s.site] || 0) + 1; });
+          state.liveBySite = Object.keys(bySite).length ? bySite : state.liveBySite;
+          if (Object.keys(bySite).length) renderLiveSites();
+        }
+      } catch (err) {}
+    };
+    es.onerror = function () { es.close(); setTimeout(openRealtime, 5000); };
+  }
+
+  window.changeSite = changeSite;
+  window.setRange = setRange;
+
+  document.addEventListener('click', function (e) {
+    if (e.target && e.target.id === 'sdkCode') {
+      var t = $('sdkCode').textContent;
+      if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { showToast(); }, function () {});
+      else { var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); showToast(); }
+    }
+  });
+  function showToast() {
+    var t = $('toast'); t.style.opacity = 1;
+    setTimeout(function () { t.style.opacity = 0; }, 1200);
+  }
+
+  loadSites();
+  setInterval(function () { if (document.visibilityState === 'visible') { loadOverview(); } }, 30000);
+  setInterval(function () { if (document.visibilityState === 'visible') loadSites(); }, 15000);
+  openRealtime();
+})();
+</script>
+</body>
+</html>
